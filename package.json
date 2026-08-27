@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "dev:legacy": "concurrently \"npm:watch-data\" \"vite --host 0.0.0.0\"",
+    "dev": "vite",
+    "dev:legacy": "concurrently \"npm:watch-data\" \"vite\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "generate-data": "tsx scripts/generate-dashboard-data.ts",

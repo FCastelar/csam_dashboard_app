@@ -124,10 +124,11 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
-    host: '0.0.0.0',
+    // Loopback only: the dev endpoints expose parsed customer data.
+    host: 'localhost',
   },
   preview: {
     port: 4173,
-    host: '0.0.0.0',
+    host: 'localhost',
   },
 });

@@ -37,9 +37,12 @@ jobs:
           VITE_BASE: /${{ github.event.repository.name }}/
 
       - name: Fail if customer data leaked into the bundle
+        # The dashboard ships code only, so any spreadsheet or data file is a leak.
         run: |
-          if find dist \( -name '*.xlsx' -o -name 'dashboard-data.json' \) | grep -q .; then
+          leaked=$(find dist \( -name '*.xlsx' -o -name '*.xls' -o -name '*.csv' -o -name '*.json' \))
+          if [ -n "$leaked" ]; then
             echo 'Customer data found in dist/. Aborting deployment.'
+            echo "$leaked"
             exit 1
           fi
 
