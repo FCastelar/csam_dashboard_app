@@ -53,6 +53,11 @@ body {
 :root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 :root[data-theme='dark'] ::-webkit-scrollbar-corner { background: #0f172a; }
 
+/* A transparent select paints its popup white, so the dark palette is set explicitly. */
+:root[data-theme='dark'] select { background-color: #1e293b; color: #f1f5f9; }
+:root[data-theme='dark'] select option { background-color: #1e293b; color: #f1f5f9; }
+:root[data-theme='dark'] select option:checked { background-color: #334155; }
+
 /* Utilities hardcoded in shared markup that has no light/dark branch. */
 :root[data-theme='dark'] .border-slate-200 { border-color: #334155; }
 :root[data-theme='dark'] .hover\:bg-slate-100:hover { background-color: #1e293b; }
