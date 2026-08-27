@@ -645,14 +645,14 @@ function Dashboard({
           <div className={panelClasses + ' overflow-x-auto p-5'}>
             <h2 className="text-lg font-semibold">Monthly Consumption</h2>
             <table className="mt-4 min-w-full text-left text-sm">
-              <thead><tr><th className="p-2">Account</th>{data.consumption.map((item) => <th key={item.month} className="p-2">{item.month}</th>)}<th className="p-2">Total</th></tr></thead>
+              <thead><tr><th className="sticky-col p-2">Account</th>{data.consumption.map((item) => <th key={item.month} className="p-2">{item.month}</th>)}<th className="p-2">Total</th></tr></thead>
               <tbody>
-                <tr className="border-t border-slate-200 font-bold"><td className="p-2">Actual</td>{data.consumption.map((item) => <td key={item.month} className="p-2">{formatCurrency(item.value)}</td>)}<td className="p-2">{formatCurrency(data.consumption.reduce((sum, item) => sum + item.value, 0))}</td></tr>
-                <tr className="border-t border-slate-200"><td className="p-2 font-bold">Projected</td>{data.consumption.map((item) => {
+                <tr className="border-t border-slate-200 font-bold"><td className="sticky-col p-2">Actual</td>{data.consumption.map((item) => <td key={item.month} className="p-2">{formatCurrency(item.value)}</td>)}<td className="p-2">{formatCurrency(data.consumption.reduce((sum, item) => sum + item.value, 0))}</td></tr>
+                <tr className="border-t border-slate-200"><td className="sticky-col p-2 font-bold">Projected</td>{data.consumption.map((item) => {
                   const projection = projectedConsumption.find((projected) => projected.month === item.month);
                   return <td key={item.month} className={projection ? 'p-2 text-slate-400' : 'p-2 font-bold'}>{formatCurrency(projection?.value ?? item.value)}</td>;
                 })}<td className="p-2 font-semibold text-slate-400">{formatCurrency(projectedYearTotal)}</td></tr>
-                <tr className="border-t border-slate-200"><td className="p-2 font-semibold">MoM</td>{data.consumption.map((item, index) => {
+                <tr className="border-t border-slate-200"><td className="sticky-col p-2 font-semibold">MoM</td>{data.consumption.map((item, index) => {
                   if (index === 0) return <td key={item.month} className="p-2">-</td>;
                   const previousValue = data.consumption[index - 1].value;
                   const difference = item.value - previousValue;
