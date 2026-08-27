@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.tsbuild/
+*.tsbuildinfo
+*.log
+
+# Dados de conta: nunca versionar nem publicar.
+Accounts/
+generated/
+public/data/
+data/*.xlsx
