@@ -60,16 +60,6 @@ body {
   z-index: 1;
   background-color: #ffffff;
 }
-/* Collapsed tables ignore cell box-shadow, so the container padding is covered by a pseudo-element. */
-.sticky-col::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 100%;
-  width: 1.25rem;
-  background-color: inherit;
-}
 :root[data-theme='dark'] .sticky-col { background-color: #0f172a; }
 
 /* A transparent select paints its popup white, so the dark palette is set explicitly. */

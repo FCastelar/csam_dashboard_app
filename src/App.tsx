@@ -642,8 +642,9 @@ function Dashboard({
               </div>
             ))}
           </div>
-          <div className={panelClasses + ' overflow-x-auto p-5'}>
+          <div className={panelClasses + ' p-5'}>
             <h2 className="text-lg font-semibold">Monthly Consumption</h2>
+            <div className="overflow-x-auto">
             <table className="mt-4 min-w-full text-left text-sm">
               <thead><tr><th className="sticky-col p-2">Account</th>{data.consumption.map((item) => <th key={item.month} className="p-2">{item.month}</th>)}<th className="p-2">Total</th></tr></thead>
               <tbody>
@@ -664,6 +665,7 @@ function Dashboard({
                 })}<td className="p-2">-</td></tr>
               </tbody>
             </table>
+            </div>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             <div className={panelClasses + ' overflow-x-auto p-5'}>
