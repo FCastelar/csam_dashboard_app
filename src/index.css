@@ -11,6 +11,12 @@
   color-scheme: light;
 }
 
+:root[data-theme='dark'] {
+  color: #e2e8f0;
+  background: #020617;
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
@@ -18,6 +24,7 @@ body {
   min-height: 100vh;
   background: linear-gradient(180deg, #f5f8fc 0%, #eef4fb 100%);
 }
+:root[data-theme='dark'] body { background: #020617; }
 #root { min-height: 100vh; }
 
 .status-pill {
@@ -37,3 +44,20 @@ body {
 
 .table-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
 .table-scroll::-webkit-scrollbar-thumb { background: #c9d4e4; border-radius: 9999px; }
+
+/* Scrollbars follow the palette instead of the browser default. */
+:root[data-theme='dark'] { scrollbar-color: #475569 #0f172a; }
+:root[data-theme='dark'] ::-webkit-scrollbar { height: 8px; width: 8px; }
+:root[data-theme='dark'] ::-webkit-scrollbar-track { background: #0f172a; }
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb { background: #475569; border-radius: 9999px; }
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+:root[data-theme='dark'] ::-webkit-scrollbar-corner { background: #0f172a; }
+
+/* Utilities hardcoded in shared markup that has no light/dark branch. */
+:root[data-theme='dark'] .border-slate-200 { border-color: #334155; }
+:root[data-theme='dark'] .hover\:bg-slate-100:hover { background-color: #1e293b; }
+:root[data-theme='dark'] .border-emerald-200 { border-color: #065f46; }
+:root[data-theme='dark'] .bg-emerald-50 { background-color: #052e21; }
+:root[data-theme='dark'] .text-emerald-700 { color: #6ee7b7; }
+:root[data-theme='dark'] .text-emerald-800\/80 { color: #a7f3d0; }
+:root[data-theme='dark'] .hover\:text-emerald-900:hover { color: #d1fae5; }

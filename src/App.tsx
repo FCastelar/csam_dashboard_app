@@ -136,6 +136,14 @@ function Dashboard({
     if (savedColor && savedColor in accentColors) setAccentColor(savedColor);
   }, [selectedAccount]);
 
+  // Drives `color-scheme`, which is what themes native scrollbars and select popups.
+  useEffect(() => {
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+    return () => {
+      delete document.documentElement.dataset.theme;
+    };
+  }, [isDark]);
+
   const handleAccentColorChange = (color: AccentColor) => {
     setAccentColor(color);
     if (selectedAccount) window.localStorage.setItem(accountColorKey(selectedAccount), color);
