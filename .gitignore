@@ -3,6 +3,7 @@ dist/
 .tsbuild/
 *.tsbuildinfo
 *.log
+.venv/
 
 # Dados de conta: nunca versionar nem publicar.
 Accounts/
