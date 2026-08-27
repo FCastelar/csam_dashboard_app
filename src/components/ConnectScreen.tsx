@@ -6,9 +6,12 @@ type ConnectScreenProps = {
   status: SourceStatus;
   error: string | null;
   supportsFolder: boolean;
+  supportsFilePicker: boolean;
   onConnectFolder: () => void;
   onReconnectFolder: () => void;
+  onConnectFiles: () => void;
   onSelectFiles: (files: File[]) => void;
+  onDropFiles: (transfer: DataTransfer) => void;
 };
 
 const cardClasses = 'w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm';
@@ -17,9 +20,12 @@ function ConnectScreen({
   status,
   error,
   supportsFolder,
+  supportsFilePicker,
   onConnectFolder,
   onReconnectFolder,
+  onConnectFiles,
   onSelectFiles,
+  onDropFiles,
 }: ConnectScreenProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,8 +35,7 @@ function ConnectScreen({
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    const files = Array.from(event.dataTransfer.files);
-    if (files.length) onSelectFiles(files);
+    if (event.dataTransfer.files.length) onDropFiles(event.dataTransfer);
   };
 
   return (
@@ -71,7 +76,7 @@ function ConnectScreen({
                   className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
                 >
                   <FolderOpen size={16} />
-                  {status === 'reconnectable' ? 'Reconectar pasta' : 'Escolher pasta'}
+                  {status === 'reconnectable' ? 'Reconectar' : 'Escolher pasta'}
                 </button>
                 {status === 'reconnectable' && (
                   <button
@@ -87,7 +92,7 @@ function ConnectScreen({
 
             {status === 'reconnectable' && (
               <p className="text-xs text-slate-500">
-                O navegador precisa de um clique seu para reabrir a pasta usada anteriormente.
+                O navegador precisa de um clique seu para reabrir os arquivos usados anteriormente.
               </p>
             )}
 
@@ -111,7 +116,7 @@ function ConnectScreen({
               </p>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => (supportsFilePicker ? onConnectFiles() : fileInputRef.current?.click())}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 <Upload size={14} />
@@ -135,6 +140,13 @@ function ConnectScreen({
               <p className="text-xs text-slate-500">
                 Para conectar uma pasta e atualizar automaticamente, use o Microsoft Edge ou o Google
                 Chrome no computador.
+              </p>
+            )}
+
+            {!supportsFilePicker && (
+              <p className="text-xs text-slate-500">
+                Neste navegador o arquivo é lido como uma cópia: para ver alterações salvas no Excel,
+                selecione o arquivo novamente.
               </p>
             )}
           </div>

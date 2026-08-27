@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isWorkbookName } from './types';
+import type { FileHandleLike } from './types';
 import { createUploadSource } from './upload-source';
+import { adoptFileHandles } from './file-source';
 
 describe('workbook discovery', () => {
   it('accepts account workbooks regardless of extension casing', () => {
@@ -36,5 +38,34 @@ describe('upload source', () => {
 
   it('fails when the selection has no workbook', () => {
     expect(() => createUploadSource([asFile('readme.txt')])).toThrow('NO_WORKBOOKS');
+  });
+});
+
+describe('file source', () => {
+  /** Mimics a workbook the user keeps editing on disk. */
+  const createHandle = (name: string): FileHandleLike & { save: (at: number) => void } => {
+    let lastModified = 1;
+    return {
+      kind: 'file',
+      name,
+      save: (at: number) => {
+        lastModified = at;
+      },
+      getFile: async () => new File(['x'], name, { lastModified }),
+    };
+  };
+
+  it('reports the newest lastModified on every listing', async () => {
+    const handle = createHandle('CAF_Account_Executive_View.xlsx');
+    const source = await adoptFileHandles([handle]);
+
+    expect((await source.list())[0].lastModified).toBe(1);
+
+    handle.save(2);
+    expect((await source.list())[0].lastModified).toBe(2);
+  });
+
+  it('rejects an empty selection', async () => {
+    await expect(adoptFileHandles([])).rejects.toThrow('NO_WORKBOOKS');
   });
 });

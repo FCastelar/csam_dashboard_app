@@ -348,7 +348,7 @@ function Dashboard({
               </button>
               <div className={subtlePanel + ' rounded-xl px-3 py-2 text-sm'}>
                 <div className={mutedText}>{t.lastUpdate}</div>
-                <div className={isDark ? 'font-semibold text-slate-100' : 'font-semibold text-brand-night'}>{new Date(data.lastUpdated).toLocaleDateString(language === 'pt' ? 'pt-BR' : language === 'es' ? 'es-ES' : 'en-US')}</div>
+                <div className={isDark ? 'font-semibold text-slate-100' : 'font-semibold text-brand-night'}>{new Date(data.lastUpdated).toLocaleString(language === 'pt' ? 'pt-BR' : language === 'es' ? 'es-ES' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
                 <HardDriveDownload size={13} />
@@ -615,11 +615,24 @@ function Dashboard({
 
         {view === 'atu-stu' && <section className="mt-6 space-y-6">
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-            <div className={panelClasses + ' p-5'}><h2 className="flex items-center gap-1 text-lg font-semibold">Committed Pipeline <FormulaHelp label="Committed Pipeline" formula="Sum of Consumed Recurring for opportunities marked as Committed." /></h2><div className="mt-3 text-3xl font-bold">{formatCurrency(data.pipelineSummary.committedValue)}</div></div>
-            <div className={panelClasses + ' p-5'}><h2 className="flex items-center gap-1 text-lg font-semibold">Uncommitted Pipeline <FormulaHelp label="Uncommitted Pipeline" formula="Sum of Consumed Recurring for opportunities not marked as Committed." /></h2><div className="mt-3 text-3xl font-bold">{formatCurrency(data.pipelineSummary.uncommittedValue)}</div></div>
-            <div className={panelClasses + ' p-5'}><h2 className="flex items-center gap-1 text-lg font-semibold">Total Pipeline <FormulaHelp label="Total Pipeline" formula="Committed Pipeline + Uncommitted Pipeline." /></h2><div className="mt-3 text-3xl font-bold">{formatCurrency(data.pipelineSummary.committedValue + data.pipelineSummary.uncommittedValue)}</div></div>
-            <div className={panelClasses + ' p-5'}><h2 className="flex items-center gap-1 text-lg font-semibold">Azure ACR Projected <FormulaHelp label="Azure ACR Projected" formula="Closed-month Actuals + remaining fiscal-year projection. Each projected month uses the previous closed month's Average Daily × calendar days in that month." /></h2><div className="mt-3 text-3xl font-bold">{formatCurrency(projectedYearTotal)}</div></div>
-            <div className={panelClasses + ' p-5'}><h2 className="flex items-center gap-1 text-lg font-semibold">PBO <FormulaHelp label="PBO" formula="Closed-month Actuals + Projected Baseline + Committed Pipeline. Equivalent to Azure ACR Projected + Committed Pipeline." /></h2><div className="mt-3 text-3xl font-bold">{formatCurrency(pbo)}</div></div>
+            {([
+              ['Committed Pipeline', 'Sum of Consumed Recurring for opportunities marked as Committed.', data.pipelineSummary.committedValue],
+              ['Uncommitted Pipeline', 'Sum of Consumed Recurring for opportunities not marked as Committed.', data.pipelineSummary.uncommittedValue],
+              ['Total Pipeline', 'Committed Pipeline + Uncommitted Pipeline.', data.pipelineSummary.committedValue + data.pipelineSummary.uncommittedValue],
+              ['Azure ACR Projected', "Closed-month Actuals + remaining fiscal-year projection. Each projected month uses the previous closed month's Average Daily × calendar days in that month.", projectedYearTotal],
+              ['PBO', 'Closed-month Actuals + Projected Baseline + Committed Pipeline. Equivalent to Azure ACR Projected + Committed Pipeline.', pbo],
+            ] as const).map(([label, formula, value]) => (
+              <div key={label} className={panelClasses + ' flex h-full min-w-0 flex-col p-5'}>
+                <h2 className="flex items-start gap-1 text-base font-semibold leading-snug">
+                  <span className="min-w-0">{label}</span>
+                  <span className="shrink-0"><FormulaHelp label={label} formula={formula} /></span>
+                </h2>
+                {/* mt-auto keeps every value on the same baseline despite titles wrapping differently. */}
+                <div className="mt-auto pt-3 text-2xl font-bold leading-tight tracking-tight tabular-nums break-words xl:text-xl 2xl:text-2xl">
+                  {formatCurrency(value)}
+                </div>
+              </div>
+            ))}
           </div>
           <div className={panelClasses + ' overflow-x-auto p-5'}>
             <h2 className="text-lg font-semibold">Monthly Consumption</h2>
@@ -724,9 +737,12 @@ function App() {
         status={source.status}
         error={source.error}
         supportsFolder={source.supportsFolder}
+        supportsFilePicker={source.supportsFilePicker}
         onConnectFolder={() => void source.connectFolder()}
         onReconnectFolder={() => void source.reconnectFolder()}
+        onConnectFiles={() => void source.connectFiles()}
         onSelectFiles={(files) => void source.loadFiles(files)}
+        onDropFiles={(transfer) => void source.dropFiles(transfer)}
       />
     );
   }

@@ -14,6 +14,8 @@ export interface FileHandleLike {
   kind: 'file';
   name: string;
   getFile(): Promise<File>;
+  queryPermission?(options?: FileSystemPermissionOptions): Promise<PermissionState>;
+  requestPermission?(options?: FileSystemPermissionOptions): Promise<PermissionState>;
 }
 
 export interface DirectoryHandleLike {
@@ -32,6 +34,15 @@ export type DirectoryPickerWindow = Window & {
   }) => Promise<DirectoryHandleLike>;
 };
 
+export type FilePickerWindow = Window & {
+  showOpenFilePicker?: (options?: {
+    id?: string;
+    multiple?: boolean;
+    excludeAcceptAllOption?: boolean;
+    types?: { description?: string; accept: Record<string, string[]> }[];
+  }) => Promise<FileHandleLike[]>;
+};
+
 /** A single workbook exposed by a source, independent of where it came from. */
 export interface AccountFile {
   /** File name including extension, e.g. `CAF_Account_Executive_View.xlsx`. */
@@ -40,7 +51,7 @@ export interface AccountFile {
   read(): Promise<ArrayBuffer>;
 }
 
-export type SourceKind = 'folder' | 'upload';
+export type SourceKind = 'folder' | 'file' | 'upload';
 
 export interface DashboardSource {
   kind: SourceKind;

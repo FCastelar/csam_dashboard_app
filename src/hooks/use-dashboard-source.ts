@@ -7,6 +7,15 @@ import {
   restoreFolderSource,
   supportsFolderSource,
 } from '../services/sources/folder-source';
+import {
+  adoptFileHandles,
+  forgetFileSource,
+  handlesFromDrop,
+  hasStoredFiles,
+  pickFileSource,
+  restoreFileSource,
+  supportsFileSource,
+} from '../services/sources/file-source';
 import { createUploadSource } from '../services/sources/upload-source';
 import type { AccountFile, DashboardSource, SourceKind } from '../services/sources/types';
 import type { DashboardSummary } from '../types/dashboard';
@@ -135,18 +144,18 @@ export const useDashboardSource = () => {
     [sync],
   );
 
-  // Silently restores a previously granted folder on load.
+  // Silently restores a previously granted folder or workbook selection.
   useEffect(() => {
     let cancelled = false;
 
     const bootstrap = async () => {
-      if (!supportsFolderSource()) {
+      if (!supportsFolderSource() && !supportsFileSource()) {
         setStatus('disconnected');
         return;
       }
 
       try {
-        const restored = await restoreFolderSource(false);
+        const restored = (await restoreFolderSource(false)) ?? (await restoreFileSource(false));
         if (cancelled) return;
 
         if (restored) {
@@ -154,9 +163,10 @@ export const useDashboardSource = () => {
           return;
         }
 
-        setStatus((await hasStoredFolder()) ? 'reconnectable' : 'disconnected');
+        const stored = (await hasStoredFolder()) || (await hasStoredFiles());
+        if (!cancelled) setStatus(stored ? 'reconnectable' : 'disconnected');
       } catch (caught) {
-        console.warn('Unable to restore the previous folder', caught);
+        console.warn('Unable to restore the previous selection', caught);
         if (!cancelled) setStatus('disconnected');
       }
     };
@@ -212,18 +222,31 @@ export const useDashboardSource = () => {
   const reconnectFolder = useCallback(async () => {
     setError(null);
     try {
-      const restored = await restoreFolderSource(true);
+      const restored = (await restoreFolderSource(true)) ?? (await restoreFileSource(true));
       if (restored) {
         await activate(restored);
         return;
       }
       await connectFolder();
     } catch (caught) {
-      console.error('Unable to reconnect the folder', caught);
+      console.error('Unable to reconnect the previous selection', caught);
       setError(describeError(caught));
       setStatus('error');
     }
   }, [activate, connectFolder]);
+
+  const connectFiles = useCallback(async () => {
+    setError(null);
+    try {
+      await activate(await pickFileSource());
+    } catch (caught) {
+      const message = describeError(caught);
+      if (!message) return; // The user dismissed the picker.
+      console.error('Unable to open the selected files', caught);
+      setError(message);
+      setStatus('error');
+    }
+  }, [activate]);
 
   const loadFiles = useCallback(
     async (files: File[]) => {
@@ -232,6 +255,26 @@ export const useDashboardSource = () => {
         await activate(createUploadSource(files));
       } catch (caught) {
         console.error('Unable to read the selected files', caught);
+        setError(describeError(caught));
+        setStatus('error');
+      }
+    },
+    [activate],
+  );
+
+  /** Prefers persistable handles from a drop and falls back to in-memory files. */
+  const dropFiles = useCallback(
+    async (transfer: DataTransfer) => {
+      setError(null);
+      try {
+        const handles = await handlesFromDrop(transfer.items);
+        if (handles.length) {
+          await activate(await adoptFileHandles(handles));
+          return;
+        }
+        await activate(createUploadSource(Array.from(transfer.files)));
+      } catch (caught) {
+        console.error('Unable to read the dropped files', caught);
         setError(describeError(caught));
         setStatus('error');
       }
@@ -251,6 +294,7 @@ export const useDashboardSource = () => {
 
   const disconnect = useCallback(async () => {
     await forgetFolderSource();
+    await forgetFileSource();
     sourceRef.current = null;
     filesRef.current = [];
     cacheRef.current.clear();
@@ -270,6 +314,7 @@ export const useDashboardSource = () => {
     sourceKind,
     sourceLabel,
     supportsFolder: supportsFolderSource(),
+    supportsFilePicker: supportsFileSource(),
     accountFiles,
     selectedAccount,
     data,
@@ -279,7 +324,9 @@ export const useDashboardSource = () => {
     selectAccount,
     connectFolder,
     reconnectFolder,
+    connectFiles,
     loadFiles,
+    dropFiles,
     refresh,
     disconnect,
   };

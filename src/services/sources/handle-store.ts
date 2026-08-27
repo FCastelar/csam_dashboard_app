@@ -1,15 +1,16 @@
-import type { DirectoryHandleLike } from './types';
+import type { DirectoryHandleLike, FileHandleLike } from './types';
 
 /**
- * Persists the chosen directory handle so returning users only have to
- * re-grant permission instead of picking the folder again.
+ * Persists the chosen directory or workbook handles so returning users only
+ * have to re-grant permission instead of picking the files again.
  *
- * The handle is a permission-scoped pointer: it carries no workbook content.
+ * A handle is a permission-scoped pointer: it carries no workbook content.
  */
 const DB_NAME = 'csam-dash';
 const DB_VERSION = 1;
 const STORE_NAME = 'handles';
 const HANDLE_KEY = 'accounts-directory';
+const FILES_KEY = 'account-files';
 
 const openDatabase = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
@@ -66,5 +67,34 @@ export const clearDirectoryHandle = async (): Promise<void> => {
     await withStore('readwrite', (store) => store.delete(HANDLE_KEY) as IDBRequest<undefined>);
   } catch (error) {
     console.warn('Unable to clear the folder selection', error);
+  }
+};
+
+export const saveFileHandles = async (handles: FileHandleLike[]): Promise<void> => {
+  try {
+    await withStore('readwrite', (store) => store.put(handles, FILES_KEY) as IDBRequest<IDBValidKey>);
+  } catch (error) {
+    console.warn('Unable to persist the file selection', error);
+  }
+};
+
+export const loadFileHandles = async (): Promise<FileHandleLike[]> => {
+  try {
+    const handles = await withStore<FileHandleLike[] | undefined>(
+      'readonly',
+      (store) => store.get(FILES_KEY) as IDBRequest<FileHandleLike[] | undefined>,
+    );
+    return handles ?? [];
+  } catch (error) {
+    console.warn('Unable to restore the file selection', error);
+    return [];
+  }
+};
+
+export const clearFileHandles = async (): Promise<void> => {
+  try {
+    await withStore('readwrite', (store) => store.delete(FILES_KEY) as IDBRequest<undefined>);
+  } catch (error) {
+    console.warn('Unable to clear the file selection', error);
   }
 };
