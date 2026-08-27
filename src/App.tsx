@@ -668,14 +668,16 @@ function Dashboard({
             </div>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
-            <div className={panelClasses + ' overflow-x-auto p-5'}>
+            <div className={panelClasses + ' p-5'}>
               <h2 className="text-lg font-semibold">Daily up to date</h2>
+              <div className="overflow-x-auto">
               <table className="mt-4 min-w-full text-left text-sm">
-                <thead><tr><th className="p-2">Account</th>{data.dailyConsumption.map((item) => <th key={item.month} className="p-2">{item.month}</th>)}</tr></thead>
-                <tbody><tr className="border-t border-slate-200"><td className="p-2 font-semibold">CAF</td>{data.dailyConsumption.map((item) => <td key={item.month} className="p-2">{item.value ? item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>)}</tr></tbody>
+                <thead><tr><th className="sticky-col p-2">Account</th>{data.dailyConsumption.map((item) => <th key={item.month} className="p-2">{item.month}</th>)}</tr></thead>
+                <tbody><tr className="border-t border-slate-200"><td className="sticky-col p-2 font-semibold">CAF</td>{data.dailyConsumption.map((item) => <td key={item.month} className="p-2">{item.value ? item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>)}</tr></tbody>
               </table>
+              </div>
             </div>
-            <div className={panelClasses + ' overflow-x-auto p-5'}>
+            <div className={panelClasses + ' p-5'}>
               <h2 className="text-lg font-semibold">Daily MoM</h2>
               {(() => {
                 const available = data.dailyConsumption.filter((item) => item.value > 0).slice(-2);
@@ -687,7 +689,7 @@ function Dashboard({
                 const currentMonthDaily = data.dailyConsumption.find((item) => item.month === currentMonthLabel);
                 const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
                 const projectedConsumption = currentMonthDaily ? currentMonthDaily.value * daysInCurrentMonth : undefined;
-                return <table className="mt-4 min-w-full text-left text-sm"><thead><tr><th className="p-2">OB</th><th className="p-2">Daily {previous?.month ?? '-'}</th><th className="p-2">Daily {current?.month ?? '-'}</th><th className="p-2">Daily MoM%</th><th className="p-2">Project {currentMonthLabel}</th></tr></thead><tbody><tr className="border-t border-slate-200"><td className="p-2 font-semibold">CAF</td><td className="p-2">{previous ? previous.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className="p-2">{current ? current.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className={change !== undefined && change >= 0 ? 'p-2 font-semibold text-emerald-600' : 'p-2 font-semibold text-red-600'}>{change !== undefined ? `${change >= 0 ? '+' : ''}${change.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '-'}</td><td className="p-2 font-semibold">{projectedConsumption === undefined ? '-' : projectedConsumption.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table>;
+                return <div className="overflow-x-auto"><table className="mt-4 min-w-full text-left text-sm"><thead><tr><th className="sticky-col p-2">OB</th><th className="p-2">Daily {previous?.month ?? '-'}</th><th className="p-2">Daily {current?.month ?? '-'}</th><th className="p-2">Daily MoM%</th><th className="p-2">Project {currentMonthLabel}</th></tr></thead><tbody><tr className="border-t border-slate-200"><td className="sticky-col p-2 font-semibold">CAF</td><td className="p-2">{previous ? previous.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className="p-2">{current ? current.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className={change !== undefined && change >= 0 ? 'p-2 font-semibold text-emerald-600' : 'p-2 font-semibold text-red-600'}>{change !== undefined ? `${change >= 0 ? '+' : ''}${change.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '-'}</td><td className="p-2 font-semibold">{projectedConsumption === undefined ? '-' : projectedConsumption.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div>;
               })()}
             </div>
           </div>
