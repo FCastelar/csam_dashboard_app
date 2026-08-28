@@ -1,7 +1,7 @@
 export const cleanText = (value: unknown): string => {
-  if (value == null) return 'Não informado';
+  if (value == null) return 'Not informed';
   const asString = String(value).trim();
-  if (!asString) return 'Não informado';
+  if (!asString) return 'Not informed';
   return asString.replace(/\s+/g, ' ').trim();
 };
 

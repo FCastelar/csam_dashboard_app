@@ -38,15 +38,15 @@ const pickDefaultAccount = (files: string[], current: string) => {
 const describeError = (error: unknown): string => {
   if (error instanceof Error) {
     if (error.name === 'AbortError') return '';
-    if (error.message === 'PERMISSION_DENIED') return 'Permissão de leitura negada para a pasta.';
-    if (error.message === 'UNSUPPORTED') return 'Este navegador não permite selecionar uma pasta.';
-    if (error.message === 'NO_WORKBOOKS') return 'Nenhum arquivo .xlsx encontrado na seleção.';
+    if (error.message === 'PERMISSION_DENIED') return 'Read permission denied for the folder.';
+    if (error.message === 'UNSUPPORTED') return 'This browser cannot select a folder.';
+    if (error.message === 'NO_WORKBOOKS') return 'No .xlsx file found in the selection.';
     if (error.message === 'No relevant workbook sheets found.') {
-      return 'O arquivo não tem as abas esperadas do Account Executive View.';
+      return 'The file does not have the expected Account Executive View sheets.';
     }
     return error.message;
   }
-  return 'Não foi possível carregar os dados.';
+  return 'Could not load the data.';
 };
 
 /**

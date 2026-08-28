@@ -57,7 +57,7 @@ export const summarizePipeline = (milestones: Milestone[]): PipelineSummary => {
     uncommittedMilestones: byCommitment('uncommitted').length + byCommitment('uncommited').length,
     committedOpportunities: new Set(byCommitment('committed').concat(byCommitment('commited')).map((item) => item.opportunityId || item.opportunityName)).size,
     uncommittedOpportunities: new Set(byCommitment('uncommitted').concat(byCommitment('uncommited')).map((item) => item.opportunityId || item.opportunityName)).size,
-    byVertical: Object.fromEntries(Array.from(new Set(unique.map((item) => item.vertical || 'Não informado'))).map((name) => [name, unique.filter((item) => (item.vertical || 'Não informado') === name).reduce((sum, item) => sum + (item.estimatedMonthlyUsage ?? 0), 0)])),
+    byVertical: Object.fromEntries(Array.from(new Set(unique.map((item) => item.vertical || 'Not informed'))).map((name) => [name, unique.filter((item) => (item.vertical || 'Not informed') === name).reduce((sum, item) => sum + (item.estimatedMonthlyUsage ?? 0), 0)])),
     byStatus: Object.fromEntries(Array.from(new Set(unique.map((item) => item.status))).map((status) => [status, unique.filter((item) => item.status === status).length])),
   };
 };

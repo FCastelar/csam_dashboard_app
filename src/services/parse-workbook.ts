@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+﻿import * as XLSX from 'xlsx';
 import type { DashboardSummary } from '../types/dashboard';
 import { cleanText, normalizeStatus, toNumber } from '../utils/strings';
 import { formatDate, normalizeDate, isWithinDays, isPastDue } from '../utils/date';
@@ -46,13 +46,19 @@ const sheetToRows = (sheet: XLSX.WorkSheet | null, raw = false): Record<string, 
   });
 };
 
-const sheetToRowsAtHeader = (sheet: XLSX.WorkSheet | null, headerMarker: string, fallbackIndex: number): Record<string, unknown>[] => {
+const sheetToRowsAtHeader = (sheet: XLSX.WorkSheet | null, headerMarker: string, fallbackIndex: number, raw = false): Record<string, unknown>[] => {
   if (!sheet) return [];
-  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, blankrows: false, defval: '' }) as unknown[][];
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw, blankrows: false, defval: '' }) as unknown[][];
   const detectedIndex = matrix.findIndex((row) => row.some((cell) => normalizeHeader(String(cell ?? '')) === normalizeHeader(headerMarker)));
   const headerIndex = detectedIndex >= 0 ? detectedIndex : fallbackIndex;
   const headers = (matrix[headerIndex] ?? []).map((cell) => String(cell ?? '').trim());
   return matrix.slice(headerIndex + 1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+};
+
+// A workbook hyperlink can carry any scheme, including javascript:, and it ends up in an href.
+const safeExternalUrl = (target?: string) => {
+  const value = (target ?? '').trim();
+  return /^https?:\/\//i.test(value) ? value : '';
 };
 
 const getColumnHyperlinks = (sheet: XLSX.WorkSheet | null, headerMarker: string, columnHeader: string) => {
@@ -84,25 +90,32 @@ const getColumnHyperlinks = (sheet: XLSX.WorkSheet | null, headerMarker: string,
   for (let row = headerRow + 1; row <= range.e.r; row += 1) {
     const cell = sheet[XLSX.utils.encode_cell({ r: row, c: targetColumn })];
     const value = String(cell?.v ?? '').trim();
-    const target = cell?.l?.Target?.replace(/&amp;/g, '&');
+    const target = safeExternalUrl(cell?.l?.Target?.replace(/&amp;/g, '&'));
     if (value && target) links.set(value, target);
   }
   return links;
 };
 
+// Exact matches win over partial ones: the export has near-duplicate headers
+// such as "Owner" and "Owner (Opportunity) (Opportunity)".
 const findHeader = (row: Record<string, unknown>, labelCandidates: string[]): string | undefined => {
   const keys = Object.keys(row);
   for (const candidate of labelCandidates) {
     const normalized = normalizeHeader(candidate);
-    const match = keys.find((key) => normalizeHeader(key) === normalized || normalizeHeader(key).includes(normalized));
-    if (match) return match;
+    const exact = keys.find((key) => normalizeHeader(key) === normalized);
+    if (exact) return exact;
+  }
+  for (const candidate of labelCandidates) {
+    const normalized = normalizeHeader(candidate);
+    const partial = keys.find((key) => normalizeHeader(key).includes(normalized));
+    if (partial) return partial;
   }
   return undefined;
 };
 
 const getColumnValue = (row: Record<string, unknown>, candidates: string[]): string => {
   const key = findHeader(row, candidates);
-  if (!key) return 'Não informado';
+  if (!key) return 'Not informed';
   return cleanText(row[key]);
 };
 
@@ -117,6 +130,33 @@ const getExactText = (row: Record<string, unknown>, candidates: string[]) => {
 };
 
 const isCommittedValue = (value: unknown) => ['committed', 'commited'].includes(cleanText(value).toLowerCase());
+
+const parseStampDate = (value: unknown): Date | undefined => {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  const text = String(value ?? '');
+  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+  const dayFirst = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!dayFirst) return undefined;
+  const year = dayFirst[3].length === 2 ? 2000 + Number(dayFirst[3]) : Number(dayFirst[3]);
+  return new Date(Date.UTC(year, Number(dayFirst[2]) - 1, Number(dayFirst[1])));
+};
+
+/** Reads the "Last update" stamp a sheet keeps in the rows above its header. */
+const findSheetUpdateDate = (sheet: XLSX.WorkSheet | null): Date | undefined => {
+  if (!sheet?.['!ref']) return undefined;
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  const lastRow = Math.min(range.e.r, range.s.r + 12);
+  for (let row = range.s.r; row <= lastRow; row += 1) {
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const text = String(sheet[XLSX.utils.encode_cell({ r: row, c: column })]?.v ?? '');
+      if (!/upadte|update|atualiza/i.test(text)) continue;
+      const parsed = parseStampDate(text) ?? parseStampDate(sheet[XLSX.utils.encode_cell({ r: row, c: column + 1 })]?.v);
+      if (parsed) return parsed;
+    }
+  }
+  return undefined;
+};
 
 const parseContractValue = (value: string) => {
   const normalized = value.toLowerCase().replace(',', '.').trim();
@@ -153,42 +193,44 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
   const executiveRows = sheetToRows(executiveSheet);
   const historyRows = sheetToRowsAtHeader(historySheet, 'Data da sessao', 1);
   const csuProjectRows = sheetToRowsAtHeader(csuProjectsSheet, 'Vertical', 1);
-  const csuMilestoneRows = sheetToRowsAtHeader(csuMilestonesSheet, 'Milestone', 1);
-  const csuMilestoneLinks = getColumnHyperlinks(csuMilestonesSheet, 'Milestone', 'Milestone ID');
+  const csuMilestoneRows = sheetToRowsAtHeader(csuMilestonesSheet, 'Milestone Id', 1);
+  const csuMilestoneLinks = getColumnHyperlinks(csuMilestonesSheet, 'Milestone Id', 'Milestone Id');
   const atuRows = sheetToRowsAtHeader(atuSheet, 'Vertical', 1);
-  const atuOpportunityLinks = getColumnHyperlinks(atuSheet, 'Vertical', 'Opportunity ID');
-  const consumptionRows = sheetToRows(consumptionSheet, true);
+  const atuOpportunityLinks = getColumnHyperlinks(atuSheet, 'Vertical', 'Opportunity Id');
+  const consumptionRows = sheetToRowsAtHeader(consumptionSheet, 'ACR', 0, true);
+  const consumptionLastUpdate = findSheetUpdateDate(consumptionSheet);
+  const consumptionLastUpdateDay = consumptionLastUpdate?.getUTCDate() ?? 0;
   const listRows = sheetToRows(listsSheet);
 
   const extractHeaderRow = (rows: Record<string, unknown>[]) => rows[0] ?? {};
   const atuOpportunityDetails = new Map<string, { name: string; vertical: string }>();
   atuRows.forEach((row) => {
-    const opportunityId = getExactText(row, ['Opportunity ID']);
+    const opportunityId = getExactText(row, ['Opportunity Id']);
     if (opportunityId) {
-      atuOpportunityDetails.set(opportunityId, { name: getExactText(row, ['Opportunity']), vertical: getExactText(row, ['Vertical']) });
+      atuOpportunityDetails.set(opportunityId, { name: getExactText(row, ['Topic', 'Opportunity']), vertical: getExactText(row, ['Vertical']) });
     }
   });
 
   const milestoneData = csuMilestoneRows.map((row, index) => {
-    const milestoneId = getExactText(row, ['Milestone ID']);
-    const relatedOpportunity = atuOpportunityDetails.get(milestoneId);
-    const opportunityId = milestoneId;
-    const opportunityName = relatedOpportunity?.name ?? '';
+    const milestoneId = getExactText(row, ['Milestone Id']);
+    const opportunityId = getExactText(row, ['Opportunity Id (Opportunity) (Opportunity)', 'Opportunity Id']);
+    const relatedOpportunity = atuOpportunityDetails.get(opportunityId);
+    const opportunityName = getExactText(row, ['Opportunity']) || relatedOpportunity?.name || '';
     const vertical = relatedOpportunity?.vertical ?? '';
-    const milestoneTitle = getExactText(row, ['Milestone']);
-    const workload = toNumber(getValueFor(row, ['Workload', 'workload']));
+    const milestoneTitle = getExactText(row, ['Name', 'Milestone']);
+    const workload = toNumber(getValueFor(row, ['Workloads', 'Workload']));
     const customerCommitment = getExactText(row, ['Customer Commitment']);
     const currentOwnership = '';
     const owner = getExactText(row, ['Owner']);
     const status = normalizeStatus(getValueFor(row, ['Milestone Status']));
-    const estimatedDateText = getExactText(row, ['Estimated Date']);
+    const estimatedDateText = getExactText(row, ['Milestone Est. Date', 'Estimated Date']);
     const estimatedDate = normalizeDate(estimatedDateText);
-    const estimatedMonthlyUsage = toNumber(getValueFor(row, ['Est. Monthly Usage']));
-    const category = getExactText(row, ['Categoria']);
+    const estimatedMonthlyUsage = toNumber(getValueFor(row, ['Est. Change in Monthly Usage', 'Est. Monthly Usage']));
+    const category = getExactText(row, ['Milestone Category', 'Categoria']);
     const handoffCondition = getExactText(row, ['Handoff para CSU']);
     const nextAction = getExactText(row, ['Proxima acao']);
     const nextReviewDate = undefined;
-    const risk = getExactText(row, ['Risco / Bloqueio']);
+    const risk = getExactText(row, ['Risk/Blocker Details', 'Risco / Bloqueio']);
     const lastUpdated = normalizeDate(getValueFor(row, ['Ultima atualizacao', 'Last updated'])) ?? cleanText(getValueFor(row, ['Ultima atualizacao', 'Last updated']));
     const isCommitted = isCommittedValue(customerCommitment);
 
@@ -224,7 +266,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     owner: cleanText(getValueFor(row, ['Owner', 'Responsavel'])),
     status: normalizeStatus(getValueFor(row, ['Status', 'status'])),
     relatedOpportunityId: cleanText(getValueFor(row, ['Opportunity ID', 'OpportunityId'])),
-  })).filter((item) => item.title !== 'Não informado');
+  })).filter((item) => item.title !== 'Not informed');
 
   const riskData = listRows.map((row) => ({
     id: cleanText(getValueFor(row, ['Risk ID', 'Id do risco', 'Risk Id'])),
@@ -233,9 +275,9 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     severity: cleanText(getValueFor(row, ['Severity', 'Severidade'])),
     status: normalizeStatus(getValueFor(row, ['Status', 'status'])),
     owner: cleanText(getValueFor(row, ['Owner', 'Responsavel'])),
-  })).filter((item) => item.title !== 'Não informado');
+  })).filter((item) => item.title !== 'Not informed');
 
-  const splitHistoryValues = (value: unknown) => String(value ?? '').split(';').map((item) => cleanText(item)).filter((item) => item && item !== 'Não informado');
+  const splitHistoryValues = (value: unknown) => String(value ?? '').split(';').map((item) => cleanText(item)).filter((item) => item && item !== 'Not informed');
   const historyData = historyRows.map((row, index) => ({
     id: getExactText(row, ['Session ID', 'ID da sessao']) || `HIST-${index + 1}`,
     sessionDate: normalizeDate(getValueFor(row, ['Session date', 'Data da sessao', 'Date'])) ?? cleanText(getValueFor(row, ['Session date', 'Data da sessao', 'Date'])),
@@ -246,7 +288,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     milestonesReviewed: splitHistoryValues(getValueFor(row, ['Milestones reviewed', 'Milestones revisados'])),
     successStories: splitHistoryValues(getValueFor(row, ['Success stories', 'Historias de sucesso'])),
     indicators: {},
-  })).filter((item) => item.summary !== 'Não informado');
+  })).filter((item) => item.summary !== 'Not informed');
 
   const latestHistoryRow = historyRows
     .map((row) => ({
@@ -257,13 +299,27 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     .sort((left, right) => new Date(right.sessionDate).getTime() - new Date(left.sessionDate).getTime())[0];
   const latestExecutiveSummary = latestHistoryRow
     ? cleanText(getValueFor(latestHistoryRow.row, ['Resumo Executivp', 'Resumo executivo', 'Resumo Executivo']))
-    : 'Não informado';
+    : 'Not informed';
+
+  const latestHighlight = (candidates: string[]) => (latestHistoryRow ? cleanText(getValueFor(latestHistoryRow.row, candidates)) : 'Not informed');
+  const executiveHighlights = {
+    asks: latestHighlight(['Asks', 'Pedidos']),
+    risks: latestHighlight(['Risks', 'Riscos']),
+    opportunities: latestHighlight(['Oportunidades', 'Opportunities']),
+    pending: latestHighlight(['Pendencias', 'Pendências', 'Pending']),
+  };
 
   const accountMatrix = accountOverviewSheet ? XLSX.utils.sheet_to_json(accountOverviewSheet, { header: 1, raw: false, blankrows: false, defval: '' }) as unknown[][] : [];
   const sectionIndex = (label: string) => accountMatrix.findIndex((row) => String(row[0] ?? '').trim().toLowerCase() === label.toLowerCase());
   const general: Record<string, string> = {};
   const generalStart = sectionIndex('INFORMACOES GERAIS');
-  accountMatrix.slice(generalStart + 1, generalStart + 6).forEach((row) => { if (row[0]) general[String(row[0])] = String(row[1] ?? '').trim(); });
+  // The section ends at the next heading, which has no value in the second column.
+  for (const row of accountMatrix.slice(generalStart + 1)) {
+    const label = String(row[0] ?? '').trim();
+    const value = String(row[1] ?? '').trim();
+    if (!label || !value) break;
+    general[label] = value;
+  }
   const sectionRows = (label: string, nextLabels: string[]) => {
     const start = sectionIndex(label);
     if (start < 0) return [];
@@ -276,6 +332,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     accountTeam: sectionRows('TIME DA CONTA', ['CONTRATOS', 'SUCCESS PROGRAMS', 'STAKEHOLDERS CLIENTE']),
     contracts: sectionRows('CONTRATOS', ['SUCCESS PROGRAMS', 'STAKEHOLDERS CLIENTE']),
     successPrograms: sectionRows('SUCCESS PROGRAMS', ['STAKEHOLDERS CLIENTE']),
+    stakeholders: sectionRows('STAKEHOLDERS CLIENTE', []),
     priorities: [],
   };
 
@@ -288,10 +345,17 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
 
   const normalizePackageName = (value: string) => value.replace(/\s+/g, ' ').trim();
 
+  // Contracts now split the package across "Tipo de Contrato" and "Tecnologia".
+  const contractPackageName = (contract: Record<string, string>) => {
+    const type = normalizePackageName(contract['Tipo de Contrato'] || '');
+    const technology = normalizePackageName(contract.Tecnologia || '');
+    return technology && technology !== '-' ? `${type} | ${technology}` : type;
+  };
+
   const hoursContracts = accountOverview.contracts
     .map((contract) => ({
-      type: normalizePackageName(contract['Tipo de Contrato'] || ''),
-      description: contract['Descricao / Escopo'] || '',
+      type: contractPackageName(contract),
+      description: contract['Descricao / Escopo'] || contract.Tecnologia || '',
       hours: parseContractHours(contract['Quantidade / Valor'] || ''),
     }))
     .filter((item) => item.hours > 0);
@@ -344,8 +408,8 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
   const csuVerticalSummary = Array.from(csuVerticalMap.values());
 
   const atuOpportunityRows = atuRows.map((row) => {
-    const opportunityId = getExactText(row, ['Opportunity ID']);
-    return { opportunityId, opportunityUrl: atuOpportunityLinks.get(opportunityId) ?? '', opportunityName: getExactText(row, ['Opportunity']), vertical: getExactText(row, ['Vertical']), stage: getExactText(row, ['Opportunity Stage']), customerCommitment: getExactText(row, ['Customer Commitment']), owner: getExactText(row, ['Owner']), consumedRecurring: toNumber(getValueFor(row, ['Consumed Recurring'])), handoff: getExactText(row, ['Handoff para CSU']), risk: getExactText(row, ['Risco / Bloqueio']) };
+    const opportunityId = getExactText(row, ['Opportunity Id']);
+    return { opportunityId, opportunityUrl: atuOpportunityLinks.get(opportunityId) ?? '', opportunityName: getExactText(row, ['Topic', 'Opportunity']), vertical: getExactText(row, ['Vertical']), stage: getExactText(row, ['Opportunity Stage', 'Active Sales Stage']), customerCommitment: getExactText(row, ['Customer Commitment', 'Recommendation']), owner: getExactText(row, ['Owner']), consumedRecurring: toNumber(getValueFor(row, ['Consumed Recurring'])), handoff: getExactText(row, ['Handoff para CSU']), risk: getExactText(row, ['Risk/Blocker Details', 'Risco / Bloqueio']) };
   }).filter((item) => item.opportunityId || item.opportunityName);
   const opportunities = atuOpportunityRows.map((opportunity, index) => ({
     opportunityId: opportunity.opportunityId || `OP-${index + 1}`,
@@ -378,13 +442,17 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
       }).reduce((sum, row) => sum + toNumber(getValueFor(row, ['ACR'])), 0),
     };
   });
+  // The workbook no longer exports an average daily column, so it is derived
+  // from the monthly ACR. Closed months use their calendar days; the month
+  // still being loaded uses the day before the sheet's last update, because
+  // that day is only partially billed.
+  const lastMonthWithConsumption = consumption.reduce((last, item, index) => (item.value > 0 ? index : last), -1);
+  const openConsumptionMonth = consumption[lastMonthWithConsumption]?.month ?? '';
+  const elapsedDays = consumptionLastUpdateDay > 1 ? consumptionLastUpdateDay - 1 : 0;
   const dailyConsumption = consumption.map((item, index) => {
-    const date = new Date(Date.UTC(2026, 6 + index, 1));
-    const monthKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-    return {
-      month: item.month,
-      value: consumptionRows.filter((row) => normalizeDate(getValueFor(row, ['Date']))?.slice(0, 7) === monthKey).reduce((sum, row) => sum + toNumber(getValueFor(row, ['Avrg Daily'])), 0),
-    };
+    const calendarDays = (Date.UTC(2026, 7 + index, 1) - Date.UTC(2026, 6 + index, 1)) / 86400000;
+    const days = index === lastMonthWithConsumption ? elapsedDays : calendarDays;
+    return { month: item.month, value: item.value > 0 && days > 0 ? item.value / days : 0 };
   });
   const maccContract = accountOverview.contracts.find((contract) => contract['Tipo de Contrato'].trim().toLowerCase() === 'macc');
   const maccTotal = maccContract ? parseContractValue(maccContract['Quantidade / Valor']) : 0;
@@ -408,7 +476,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     activeOpportunities: new Set(
       atuOpportunityRows
         .map((opportunity) => opportunity.opportunityName)
-        .filter((item) => item && item !== 'Não informado')
+        .filter((item) => item && item !== 'Not informed')
     ).size,
     milestonesTracked: milestoneData.length,
     milestonesCommitted: csuMilestoneRows.filter((row) => {
@@ -431,8 +499,9 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
 
   const summary: DashboardSummary = {
     lastUpdated: new Date().toISOString(),
-    lastSessionDate: latestHistoryRow?.sessionDate ?? 'Não informado',
+    lastSessionDate: latestHistoryRow?.sessionDate ?? 'Not informed',
     executiveSummary,
+    executiveHighlights,
     kpis,
     opportunities: groupedOpportunities,
     milestones: milestoneData,
@@ -447,6 +516,8 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     pipelineSummary,
     consumption,
     dailyConsumption,
+    openConsumptionMonth,
+    consumptionLastUpdated: consumptionLastUpdate?.toISOString() ?? '',
     maccComparison,
     maccTotal,
   };

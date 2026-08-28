@@ -56,6 +56,7 @@ export interface AccountOverview {
   accountTeam: Array<Record<string, string>>;
   contracts: Array<Record<string, string>>;
   successPrograms: Array<Record<string, string>>;
+  stakeholders: Array<Record<string, string>>;
   priorities: Array<Record<string, string>>;
 }
 
@@ -173,6 +174,13 @@ export interface DashboardSummary {
   lastUpdated: string;
   lastSessionDate: string;
   executiveSummary: string;
+  /** Themed notes from the most recent Executive_Summary row. */
+  executiveHighlights: {
+    asks: string;
+    risks: string;
+    opportunities: string;
+    pending: string;
+  };
   kpis: {
     openInitiatives: number;
     activeProjects: number;
@@ -195,8 +203,11 @@ export interface DashboardSummary {
   csuVerticalSummary: CsuVerticalSummary[];
   atuOpportunities: OpportunitySummary[];
   pipelineSummary: PipelineSummary;
-  consumption: ConsumptionMonth[];
-  dailyConsumption: DailyConsumption[];
+  consumption: ConsumptionMonth[];  dailyConsumption: DailyConsumption[];
+  /** Month still receiving ACR, so its totals are not comparable yet. */
+  openConsumptionMonth: string;
+  /** "Last update" stamp the Consumption sheet carries above its header. */
+  consumptionLastUpdated: string;
   maccComparison: MaccComparison[];
   maccTotal: number;
 }

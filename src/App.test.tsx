@@ -17,7 +17,7 @@ describe('Excel parsing helpers', () => {
   });
 
   it('treats empty cells safely', () => {
-    expect(cleanText('')).toBe('Não informado');
+    expect(cleanText('')).toBe('Not informed');
     expect(toNumber('')).toBe(0);
   });
 

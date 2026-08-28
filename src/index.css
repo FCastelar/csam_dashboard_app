@@ -18,7 +18,8 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+/* Reserving the scrollbar keeps the layout from shifting between views. */
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
 body {
   margin: 0;
   min-height: 100vh;
@@ -66,6 +67,104 @@ body {
 :root[data-theme='dark'] select { background-color: #1e293b; color: #f1f5f9; }
 :root[data-theme='dark'] select option { background-color: #1e293b; color: #f1f5f9; }
 :root[data-theme='dark'] select option:checked { background-color: #334155; }
+
+/*
+ * Chromium 135+ lets the dropdown itself be styled; older browsers keep the
+ * native popup, so this is a progressive enhancement.
+ */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) {
+    appearance: base-select;
+  }
+
+  select {
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    /* The base button stretches its text box, pushing the label above the sibling text. */
+    align-items: center;
+  }
+
+  select::picker(select) {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    padding: 0.25rem;
+    max-height: 22rem;
+    /* Without a scroll container the option list paints over the rounded corners. */
+    overflow: auto;
+    background: #ffffff;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  }
+
+  option {
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+    color: #334155;
+    background: transparent;
+  }
+
+  option:hover,
+  option:focus {
+    background: #f1f5f9;
+  }
+
+  option:checked {
+    font-weight: 600;
+    background: #e2e8f0;
+  }
+
+  :root[data-theme='dark'] select::picker(select) {
+    border-color: #334155;
+    background: #1e293b;
+  }
+
+  :root[data-theme='dark'] option {
+    color: #e2e8f0;
+  }
+
+  :root[data-theme='dark'] option:hover,
+  :root[data-theme='dark'] option:focus,
+  :root[data-theme='dark'] option:checked {
+    background: #334155;
+  }
+}
+
+/* PDF export: only the account title and the presentation panels reach the page. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  [data-print='hide'] {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  /* The export keeps whichever theme is on screen. */
+  :root[data-theme='dark'],
+  :root[data-theme='dark'] body {
+    background: #020617 !important;
+  }
+
+  .shadow-soft {
+    box-shadow: none !important;
+  }
+
+  /* Panel borders and status colours would otherwise be dropped by the browser. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
 
 /* Utilities hardcoded in shared markup that has no light/dark branch. */
 :root[data-theme='dark'] .border-slate-200 { border-color: #334155; }

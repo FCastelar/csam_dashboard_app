@@ -44,25 +44,25 @@ function ConnectScreen({
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-blue">
           Executive Account Dashboard
         </p>
-        <h1 className="mt-2 text-2xl font-bold text-brand-night">Conecte seus arquivos</h1>
+        <h1 className="mt-2 text-2xl font-bold text-brand-night">Connect your files</h1>
         <p className="mt-3 text-sm text-slate-600">
-          Selecione a pasta do OneDrive onde ficam os arquivos{' '}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">*_Account_Executive_View.xlsx</code>.
-          O dashboard lê e processa tudo no seu navegador.
+          Select the OneDrive folder that holds the{' '}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">*_Account_Executive_View.xlsx</code> files.
+          The dashboard reads and processes everything in your browser.
         </p>
 
         <div className="mt-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           <ShieldCheck size={18} className="mt-0.5 shrink-0" />
           <p>
-            Seus dados <strong>não são enviados para nenhum servidor</strong>. A leitura acontece
-            localmente e nada é publicado ou compartilhado.
+            Your data <strong>is never sent to any server</strong>. Reading happens locally and
+            nothing is published or shared.
           </p>
         </div>
 
         {isBusy && (
           <div className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-600">
             <Loader2 size={16} className="animate-spin" />
-            {status === 'initializing' ? 'Verificando acesso anterior...' : 'Lendo os arquivos...'}
+            {status === 'initializing' ? 'Checking previous access...' : 'Reading the files...'}
           </div>
         )}
 
@@ -76,7 +76,7 @@ function ConnectScreen({
                   className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
                 >
                   <FolderOpen size={16} />
-                  {status === 'reconnectable' ? 'Reconectar' : 'Escolher pasta'}
+                  {status === 'reconnectable' ? 'Reconnect' : 'Choose folder'}
                 </button>
                 {status === 'reconnectable' && (
                   <button
@@ -84,7 +84,7 @@ function ConnectScreen({
                     onClick={onConnectFolder}
                     className="text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-800"
                   >
-                    Escolher outra pasta
+                    Choose another folder
                   </button>
                 )}
               </div>
@@ -92,7 +92,7 @@ function ConnectScreen({
 
             {status === 'reconnectable' && (
               <p className="text-xs text-slate-500">
-                O navegador precisa de um clique seu para reabrir os arquivos usados anteriormente.
+                The browser needs a click from you to reopen the files used previously.
               </p>
             )}
 
@@ -111,8 +111,8 @@ function ConnectScreen({
               <FileSpreadsheet size={22} className="mx-auto text-slate-400" />
               <p className="mt-2 text-sm text-slate-600">
                 {supportsFolder
-                  ? 'Ou arraste os arquivos .xlsx para cá'
-                  : 'Arraste os arquivos .xlsx para cá'}
+                  ? 'Or drag the .xlsx files here'
+                  : 'Drag the .xlsx files here'}
               </p>
               <button
                 type="button"
@@ -120,7 +120,7 @@ function ConnectScreen({
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 <Upload size={14} />
-                Selecionar arquivos
+                Select files
               </button>
               <input
                 ref={fileInputRef}
@@ -138,15 +138,15 @@ function ConnectScreen({
 
             {!supportsFolder && (
               <p className="text-xs text-slate-500">
-                Para conectar uma pasta e atualizar automaticamente, use o Microsoft Edge ou o Google
-                Chrome no computador.
+                To connect a folder and refresh automatically, use Microsoft Edge or Google Chrome on
+                the desktop.
               </p>
             )}
 
             {!supportsFilePicker && (
               <p className="text-xs text-slate-500">
-                Neste navegador o arquivo é lido como uma cópia: para ver alterações salvas no Excel,
-                selecione o arquivo novamente.
+                This browser reads the file as a copy: to see changes saved in Excel, select the file
+                again.
               </p>
             )}
           </div>
