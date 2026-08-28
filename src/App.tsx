@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Activity, Briefcase, CalendarClock, CheckCircle2, CircleHelp, Clock, Filter, FolderKanban, HardDriveDownload, RefreshCw, Search, Shield, TrendingUp, UserRound } from 'lucide-react';
 import type { DashboardSummary, Milestone, Opportunity } from './types/dashboard';
-import { calculateProjectedBaselineByMonth } from './utils/date';
+import { calculateCurrentMonthProjection, calculateProjectedBaselineByMonth } from './utils/date';
 import { useDashboardSource } from './hooks/use-dashboard-source';
 import ConnectScreen from './components/ConnectScreen';
 
@@ -627,7 +627,7 @@ function Dashboard({
               ['Committed Pipeline', 'Sum of Consumed Recurring for opportunities marked as Committed.', data.pipelineSummary.committedValue],
               ['Uncommitted Pipeline', 'Sum of Consumed Recurring for opportunities not marked as Committed.', data.pipelineSummary.uncommittedValue],
               ['Total Pipeline', 'Committed Pipeline + Uncommitted Pipeline.', data.pipelineSummary.committedValue + data.pipelineSummary.uncommittedValue],
-              ['Azure ACR Projected', "Closed-month Actuals + remaining fiscal-year projection. Each projected month uses the previous closed month's Average Daily × calendar days in that month.", projectedYearTotal],
+              ['Azure ACR Projected', "Closed-month Actuals + remaining fiscal-year projection. The month in progress uses its own Average Daily; later months use the last closed month's Average Daily. Each is multiplied by the calendar days in that month.", projectedYearTotal],
               ['PBO', 'Closed-month Actuals + Projected Baseline + Committed Pipeline. Equivalent to Azure ACR Projected + Committed Pipeline.', pbo],
             ] as const).map(([label, formula, value]) => (
               <div key={label} className={panelClasses + ' flex h-full min-w-0 flex-col p-5'}>
@@ -684,11 +684,9 @@ function Dashboard({
                 const previous = available[0];
                 const current = available[1];
                 const change = previous && current ? ((current.value - previous.value) / previous.value) * 100 : undefined;
-                const now = new Date();
-                const currentMonthLabel = now.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-                const currentMonthDaily = data.dailyConsumption.find((item) => item.month === currentMonthLabel);
-                const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                const projectedConsumption = currentMonthDaily ? currentMonthDaily.value * daysInCurrentMonth : undefined;
+                const currentProjection = calculateCurrentMonthProjection(data.dailyConsumption);
+                const currentMonthLabel = currentProjection?.month ?? new Date().toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                const projectedConsumption = currentProjection?.value;
                 return <div className="overflow-x-auto"><table className="mt-4 min-w-full text-left text-sm"><thead><tr><th className="sticky-col p-2">OB</th><th className="p-2">Daily {previous?.month ?? '-'}</th><th className="p-2">Daily {current?.month ?? '-'}</th><th className="p-2">Daily MoM%</th><th className="p-2">Project {currentMonthLabel}</th></tr></thead><tbody><tr className="border-t border-slate-200"><td className="sticky-col p-2 font-semibold">CAF</td><td className="p-2">{previous ? previous.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className="p-2">{current ? current.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td><td className={change !== undefined && change >= 0 ? 'p-2 font-semibold text-emerald-600' : 'p-2 font-semibold text-red-600'}>{change !== undefined ? `${change >= 0 ? '+' : ''}${change.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '-'}</td><td className="p-2 font-semibold">{projectedConsumption === undefined ? '-' : projectedConsumption.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div>;
               })()}
             </div>

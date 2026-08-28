@@ -47,12 +47,36 @@ export const isPastDue = (dateValue?: string): boolean => {
   return date.getTime() < Date.now();
 };
 
+const monthLabel = (year: number, month: number): string =>
+  new Date(Date.UTC(year, month, 1)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+
+const daysInMonth = (year: number, month: number): number =>
+  (Date.UTC(year, month + 1, 1) - Date.UTC(year, month, 1)) / 86400000;
+
+/**
+ * Run-rate projection for the month in progress, using its own Average Daily.
+ *
+ * Shared by the Monthly Consumption and Daily MoM tables so both always agree.
+ */
+export const calculateCurrentMonthProjection = (
+  dailyConsumption: Array<{ month: string; value: number }>,
+  currentDate = new Date(),
+): { month: string; value: number } | undefined => {
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const label = monthLabel(year, month);
+  const daily = dailyConsumption.find((item) => item.month === label)?.value ?? 0;
+  if (daily <= 0) return undefined;
+  return { month: label, value: daily * daysInMonth(year, month) };
+};
+
 export const calculateProjectedBaselineByMonth = (dailyConsumption: Array<{ month: string; value: number }>, currentDate = new Date()): Array<{ month: string; value: number }> => {
   const previousMonth = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const previousMonthLabel = previousMonth.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
   const previousMonthDaily = dailyConsumption.find((item) => item.month === previousMonthLabel)?.value ?? 0;
   if (previousMonthDaily <= 0) return [];
 
+  const currentMonthProjection = calculateCurrentMonthProjection(dailyConsumption, currentDate);
   const fiscalYearEnd = currentDate.getMonth() <= 5 ? currentDate.getFullYear() : currentDate.getFullYear() + 1;
   const projections: Array<{ month: string; value: number }> = [];
   for (let year = currentDate.getFullYear(), month = currentDate.getMonth(); year < fiscalYearEnd || month <= 5; month += 1) {
@@ -60,10 +84,11 @@ export const calculateProjectedBaselineByMonth = (dailyConsumption: Array<{ mont
       month = 0;
       year += 1;
     }
-    const monthStart = Date.UTC(year, month, 1);
-    const daysInMonth = (Date.UTC(year, month + 1, 1) - monthStart) / 86400000;
-    const monthLabel = new Date(monthStart).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
-    projections.push({ month: monthLabel, value: previousMonthDaily * daysInMonth });
+    const label = monthLabel(year, month);
+    const value = label === currentMonthProjection?.month
+      ? currentMonthProjection.value
+      : previousMonthDaily * daysInMonth(year, month);
+    projections.push({ month: label, value });
   }
   return projections;
 };

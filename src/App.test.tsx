@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeStatus, toNumber, cleanText } from './utils/strings';
-import { calculateProjectedBaseline, calculateProjectedBaselineByMonth, normalizeDate, isWithinDays, isPastDue } from './utils/date';
+import { calculateCurrentMonthProjection, calculateProjectedBaseline, calculateProjectedBaselineByMonth, normalizeDate, isWithinDays, isPastDue } from './utils/date';
 import { calculateCommittedPipeline, calculateUncommittedPipeline, getOpportunityOverallStatus } from './utils/pipeline';
 
 describe('Excel parsing helpers', () => {
@@ -47,9 +47,31 @@ describe('Excel parsing helpers', () => {
       { month: 'Aug 26', value: 120 },
     ];
 
-    expect(calculateProjectedBaseline(dailyConsumption, new Date(2026, 7, 15))).toBe(33_400);
-    expect(calculateProjectedBaselineByMonth(dailyConsumption, new Date(2026, 7, 15))[0]).toEqual({ month: 'Aug 26', value: 3_100 });
+    expect(calculateProjectedBaseline(dailyConsumption, new Date(2026, 7, 15))).toBe(34_020);
+    expect(calculateProjectedBaselineByMonth(dailyConsumption, new Date(2026, 7, 15))[1]).toEqual({ month: 'Sep 26', value: 3_000 });
     expect(calculateProjectedBaselineByMonth(dailyConsumption, new Date(2026, 7, 15)).at(-1)).toEqual({ month: 'Jun 27', value: 3_000 });
     expect(calculateProjectedBaseline([], new Date(2026, 7, 15))).toBe(0);
+  });
+
+  it('projects the month in progress from its own daily value', () => {
+    const dailyConsumption = [
+      { month: 'Jul 26', value: 100 },
+      { month: 'Aug 26', value: 120 },
+    ];
+    const currentDate = new Date(2026, 7, 15);
+
+    const currentMonth = calculateCurrentMonthProjection(dailyConsumption, currentDate);
+    expect(currentMonth).toEqual({ month: 'Aug 26', value: 3_720 });
+
+    // The Monthly Consumption row must show exactly what Daily MoM projects.
+    expect(calculateProjectedBaselineByMonth(dailyConsumption, currentDate)[0]).toEqual(currentMonth);
+  });
+
+  it('falls back to the previous month when the current one has no daily value', () => {
+    const dailyConsumption = [{ month: 'Jul 26', value: 100 }];
+    const currentDate = new Date(2026, 7, 15);
+
+    expect(calculateCurrentMonthProjection(dailyConsumption, currentDate)).toBeUndefined();
+    expect(calculateProjectedBaselineByMonth(dailyConsumption, currentDate)[0]).toEqual({ month: 'Aug 26', value: 3_100 });
   });
 });
