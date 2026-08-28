@@ -654,7 +654,7 @@ function Dashboard({
               context: person.Organizacao,
               email: person.Email,
             })).sort(byName)],
-            ['Client Stakeholders', data.accountOverview.stakeholders.map((person) => ({
+            ['Customer Stakeholders', data.accountOverview.stakeholders.map((person) => ({
               name: person.Nome,
               role: person.Cargo,
               context: person.Contrato,
