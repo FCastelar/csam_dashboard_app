@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, FolderOpen, Loader2, ShieldCheck, Upload } from 'lucide-react';
 import type { SourceStatus } from '../hooks/use-dashboard-source';
+import { Button, Card, Notice } from './ui';
 
 type ConnectScreenProps = {
   status: SourceStatus;
@@ -13,8 +14,6 @@ type ConnectScreenProps = {
   onSelectFiles: (files: File[]) => void;
   onDropFiles: (transfer: DataTransfer) => void;
 };
-
-const cardClasses = 'w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm';
 
 function ConnectScreen({
   status,
@@ -39,29 +38,28 @@ function ConnectScreen({
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className={cardClasses}>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-blue">
+    <div className="flex min-h-screen items-center justify-center bg-canvas p-4 font-geist">
+      <Card className="w-full max-w-2xl p-8">
+        <p className="text-caption font-medium uppercase tracking-[0.6px] text-mid-gray">
           Executive Account Dashboard
         </p>
-        <h1 className="mt-2 text-2xl font-bold text-brand-night">Connect your files</h1>
-        <p className="mt-3 text-sm text-slate-600">
+        <h1 className="mt-3 text-heading-sm font-semibold text-ink md:text-heading">Connect your files</h1>
+        <p className="mt-3 max-w-xl text-body text-mid-gray">
           Select the OneDrive folder that holds the{' '}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">*_Account_Executive_View.xlsx</code> files.
-          The dashboard reads and processes everything in your browser.
+          <code className="rounded-small bg-canvas px-1.5 py-0.5 text-caption tracking-normal text-ink">
+            *_Account_Executive_View.xlsx
+          </code>{' '}
+          files. The dashboard reads and processes everything in your browser.
         </p>
 
-        <div className="mt-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          <ShieldCheck size={18} className="mt-0.5 shrink-0" />
-          <p>
-            Your data <strong>is never sent to any server</strong>. Reading happens locally and
-            nothing is published or shared.
-          </p>
-        </div>
+        <Notice className="mt-6" icon={<ShieldCheck size={18} strokeWidth={1.5} />}>
+          Your data <strong className="font-medium">is never sent to any server</strong>. Reading happens
+          locally and nothing is published or shared.
+        </Notice>
 
         {isBusy && (
-          <div className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-600">
-            <Loader2 size={16} className="animate-spin" />
+          <div className="mt-6 flex items-center gap-2 text-body font-medium text-mid-gray">
+            <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
             {status === 'initializing' ? 'Checking previous access...' : 'Reading the files...'}
           </div>
         )}
@@ -70,28 +68,23 @@ function ConnectScreen({
           <div className="mt-6 space-y-4">
             {supportsFolder && (
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
                   onClick={status === 'reconnectable' ? onReconnectFolder : onConnectFolder}
-                  className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
                 >
-                  <FolderOpen size={16} />
+                  <FolderOpen size={16} strokeWidth={1.5} />
                   {status === 'reconnectable' ? 'Reconnect' : 'Choose folder'}
-                </button>
+                </Button>
                 {status === 'reconnectable' && (
-                  <button
-                    type="button"
-                    onClick={onConnectFolder}
-                    className="text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-800"
-                  >
+                  <Button variant="ghost" onClick={onConnectFolder}>
                     Choose another folder
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
 
             {status === 'reconnectable' && (
-              <p className="text-xs text-slate-500">
+              <p className="text-caption tracking-normal text-mid-gray">
                 The browser needs a click from you to reopen the files used previously.
               </p>
             )}
@@ -104,24 +97,22 @@ function ConnectScreen({
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               className={
-                'rounded-xl border-2 border-dashed p-6 text-center transition ' +
-                (isDragging ? 'border-brand-blue bg-blue-50' : 'border-slate-300 bg-slate-50')
+                'rounded-card border border-dashed p-6 text-center transition-colors ' +
+                (isDragging ? 'border-ink bg-canvas' : 'border-hairline bg-surface-alt')
               }
             >
-              <FileSpreadsheet size={22} className="mx-auto text-slate-400" />
-              <p className="mt-2 text-sm text-slate-600">
-                {supportsFolder
-                  ? 'Or drag the .xlsx files here'
-                  : 'Drag the .xlsx files here'}
+              <FileSpreadsheet size={22} strokeWidth={1.5} className="mx-auto text-mid-gray" />
+              <p className="mt-2 text-body text-mid-gray">
+                {supportsFolder ? 'Or drag the .xlsx files here' : 'Drag the .xlsx files here'}
               </p>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                className="mt-3"
                 onClick={() => (supportsFilePicker ? onConnectFiles() : fileInputRef.current?.click())}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
-                <Upload size={14} />
+                <Upload size={14} strokeWidth={1.5} />
                 Select files
-              </button>
+              </Button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -137,28 +128,26 @@ function ConnectScreen({
             </div>
 
             {!supportsFolder && (
-              <p className="text-xs text-slate-500">
-                To connect a folder and refresh automatically, use Microsoft Edge or Google Chrome on
-                the desktop.
+              <p className="text-caption tracking-normal text-mid-gray">
+                To connect a folder and refresh automatically, use Microsoft Edge or Google Chrome on the
+                desktop.
               </p>
             )}
 
             {!supportsFilePicker && (
-              <p className="text-xs text-slate-500">
-                This browser reads the file as a copy: to see changes saved in Excel, select the file
-                again.
+              <p className="text-caption tracking-normal text-mid-gray">
+                This browser reads the file as a copy: to see changes saved in Excel, select the file again.
               </p>
             )}
           </div>
         )}
 
         {error && (
-          <div className="mt-5 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-            <p>{error}</p>
-          </div>
+          <Notice className="mt-5" variant="error" icon={<AlertTriangle size={18} strokeWidth={1.5} />}>
+            {error}
+          </Notice>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
