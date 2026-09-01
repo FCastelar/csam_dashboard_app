@@ -249,9 +249,16 @@ function Dashboard({
     .filter((pkg) => (csuStatusFilter === 'all' && csuCsaFilter === 'all') || pkg.projects.length > 0),
   [data.csuPackages, csuPackageFilter, csuStatusFilter, csuCsaFilter]);
 
+  // The calendar may already be in the next month while the last one is still open in the workbook.
+  const referenceDate = useMemo(() => {
+    const stamp = data.consumptionLastUpdated ? new Date(data.consumptionLastUpdated) : undefined;
+    if (!stamp || Number.isNaN(stamp.getTime())) return new Date();
+    return new Date(stamp.getUTCFullYear(), stamp.getUTCMonth(), stamp.getUTCDate());
+  }, [data.consumptionLastUpdated]);
+
   const projectedConsumption = useMemo(() => {
-    return calculateProjectedBaselineByMonth(data.dailyConsumption);
-  }, [data.dailyConsumption, refreshStamp]);
+    return calculateProjectedBaselineByMonth(data.dailyConsumption, referenceDate);
+  }, [data.dailyConsumption, referenceDate, refreshStamp]);
 
   const projectedYearTotal = useMemo(() => data.consumption.reduce((sum, item) => {
     const projection = projectedConsumption.find((projected) => projected.month === item.month);
@@ -276,7 +283,7 @@ function Dashboard({
     return previous && current && previous.value > 0 ? ((current.value - previous.value) / previous.value) * 100 : undefined;
   }, [data.dailyConsumption]);
 
-  const currentMonthProjection = useMemo(() => calculateCurrentMonthProjection(data.dailyConsumption), [data.dailyConsumption]);
+  const currentMonthProjection = useMemo(() => calculateCurrentMonthProjection(data.dailyConsumption, referenceDate), [data.dailyConsumption, referenceDate]);
 
   const maccDifferenceTotal = useMemo(() => {
     // The month still being loaded has partial ACR, so it would show an artificial gap.
@@ -560,7 +567,7 @@ function Dashboard({
               label="Dashboard views"
               value={view}
               onChange={setView}
-              items={[['overview', 'Overview'], ['atu-stu', 'ATU/STU'], ['csu', 'CSU']] as const}
+              items={[['overview', 'Overview'], ['atu-stu', 'Consumption'], ['csu', 'CSU']] as const}
             />
           </div>
         )}
@@ -1013,8 +1020,8 @@ function Dashboard({
                 const previous = available[0];
                 const current = available[1];
                 const change = previous && current ? ((current.value - previous.value) / previous.value) * 100 : undefined;
-                const currentProjection = calculateCurrentMonthProjection(data.dailyConsumption);
-                const currentMonthLabel = currentProjection?.month ?? new Date().toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                const currentProjection = calculateCurrentMonthProjection(data.dailyConsumption, referenceDate);
+                const currentMonthLabel = currentProjection?.month ?? referenceDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
                 const projectedConsumption = currentProjection?.value;
                 return <TableScroll className="mt-4"><Table><THead><tr><TH className="sticky-col">OB</TH><TH>Daily {previous?.month ?? '-'}</TH><TH>Daily {current?.month ?? '-'}</TH><TH>Daily MoM%</TH><TH>Project {currentMonthLabel}</TH></tr></THead><TBody><TR><TD className="sticky-col font-medium">CAF</TD><TD className="tabular-nums">{previous ? previous.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TD><TD className="tabular-nums">{current ? current.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TD><TD className="font-medium tabular-nums" style={{ color: toneColor(change !== undefined && change >= 0 ? 'positive' : 'negative') }}>{change !== undefined ? `${change >= 0 ? '+' : ''}${change.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '-'}</TD><TD className="font-medium tabular-nums">{projectedConsumption === undefined ? '-' : projectedConsumption.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TD></TR></TBody></Table></TableScroll>;
               })()}

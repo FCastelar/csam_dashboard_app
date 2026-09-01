@@ -180,6 +180,21 @@ body {
   background-color: rgb(var(--color-paper));
 }
 
+/*
+ * TableScroll pads its content, so the cell pins one padding-width inside the
+ * scrollport and the columns underneath would show through that gap.
+ * Keep the width in sync with the px-5 in TableScroll.
+ */
+.sticky-col::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 1.25rem;
+  background-color: inherit;
+}
+
 /* A transparent select paints its popup white, so the palette is set explicitly. */
 select { background-color: rgb(var(--color-canvas)); color: rgb(var(--color-ink)); }
 select option { background-color: rgb(var(--color-paper)); color: rgb(var(--color-ink)); }
