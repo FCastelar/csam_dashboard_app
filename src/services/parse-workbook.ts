@@ -187,6 +187,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
   const csuMilestonesSheet = getSheet(workbook, 'CSU_Milestones');
   const atuSheet = getSheet(workbook, 'ATU_STU');
   const consumptionSheet = getSheet(workbook, 'Consumption') ?? getSheet(workbook, 'Consumo') ?? getSheet(workbook, 'ACR');
+  const serviceLevelSheet = getSheet(workbook, 'Service Level') ?? getSheet(workbook, 'ServiceLevel');
   const historySheet = getSheet(workbook, 'Executive_Summary') ?? getSheet(workbook, 'History') ?? getSheet(workbook, 'Historico') ?? getSheet(workbook, 'Hisotico');
   const listsSheet = getSheet(workbook, 'Listas');
 
@@ -198,6 +199,7 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
   const atuRows = sheetToRowsAtHeader(atuSheet, 'Vertical', 1);
   const atuOpportunityLinks = getColumnHyperlinks(atuSheet, 'Vertical', 'Opportunity Id');
   const consumptionRows = sheetToRowsAtHeader(consumptionSheet, 'ACR', 0, true);
+  const serviceLevelRows = sheetToRowsAtHeader(serviceLevelSheet, 'Service or FRA group', 0, true);
   const consumptionLastUpdate = findSheetUpdateDate(consumptionSheet);
   const consumptionLastUpdateDay = consumptionLastUpdate?.getUTCDate() ?? 0;
   const listRows = sheetToRows(listsSheet);
@@ -442,16 +444,80 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
       }).reduce((sum, row) => sum + toNumber(getValueFor(row, ['ACR'])), 0),
     };
   });
+  // Per-subscription ACR, so the review can point at which workloads moved.
+  const subscriptionTotals = new Map<string, { id: string; name: string; monthKey: string; month: string; value: number }>();
+  consumptionRows.forEach((row) => {
+    const name = String(getValueFor(row, ['Subscription name']) ?? '').trim();
+    const id = String(getValueFor(row, ['Subscription ID']) ?? '').trim();
+    const normalized = normalizeDate(getValueFor(row, ['Date']));
+    if ((!name && !id) || !normalized) return;
+    const monthKey = normalized.slice(0, 7);
+    const key = `${monthKey}|${id || name}`;
+    const entry = subscriptionTotals.get(key);
+    const value = toNumber(getValueFor(row, ['ACR']));
+    if (entry) {
+      entry.value += value;
+      return;
+    }
+    subscriptionTotals.set(key, {
+      id,
+      name,
+      monthKey,
+      month: new Date(`${monthKey}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }),
+      value,
+    });
+  });
+  const subscriptionConsumption = [...subscriptionTotals.values()];
+
+  /*
+   * The sheet reports the closed month and its MoM %, so the previous month is
+   * rebuilt from them: before = after / (1 + pct/100).
+   */
+  const serviceLevelHeader = serviceLevelRows[0] ?? {};
+  const headerLabel = (candidates: string[]) => {
+    const key = Object.keys(serviceLevelHeader).find((name) => candidates.some((candidate) => normalizeHeader(name).includes(normalizeHeader(candidate))));
+    return key ? (key.match(/\(([^)]*)\)/)?.[1]?.trim() ?? '') : '';
+  };
+  const serviceMonthsLabel = headerLabel(['MoM']);
+  const [serviceLevelPrevious, serviceLevelCurrent] = serviceMonthsLabel.includes('-')
+    ? serviceMonthsLabel.split('-').map((part) => part.trim())
+    : ['', headerLabel(['Last Month Invoiced Usage'])];
+
+  const serviceLevelServices = serviceLevelRows
+    .map((row) => {
+      const name = String(getValueFor(row, ['Service or FRA group']) ?? '').trim();
+      const momText = String(getValueFor(row, ['MoM']) ?? '').trim();
+      return {
+        name,
+        total: toNumber(getValueFor(row, ['Total Invoiced Usage'])),
+        lastMonth: toNumber(getValueFor(row, ['Last Month Invoiced Usage'])),
+        momPercentage: momText === '' ? undefined : toNumber(momText),
+      };
+    })
+    // The sheet repeats its header row, which would otherwise arrive as a service.
+    .filter((item) => item.name && normalizeHeader(item.name) !== normalizeHeader('Service or FRA group'));
+
+  const serviceLevel = {
+    previousMonth: serviceLevelPrevious,
+    currentMonth: serviceLevelCurrent,
+    services: serviceLevelServices,
+  };
+
   // The workbook no longer exports an average daily column, so it is derived
   // from the monthly ACR. Closed months use their calendar days; the month
   // still being loaded uses the day before the sheet's last update, because
   // that day is only partially billed.
   const lastMonthWithConsumption = consumption.reduce((last, item, index) => (item.value > 0 ? index : last), -1);
-  const openConsumptionMonth = consumption[lastMonthWithConsumption]?.month ?? '';
+  const monthStart = (index: number) => Date.UTC(2026, 6 + index, 1);
   const elapsedDays = consumptionLastUpdateDay > 1 ? consumptionLastUpdateDay - 1 : 0;
+  // A stamp dated on or after the following month means that month is fully billed.
+  const isLastMonthClosed = lastMonthWithConsumption < 0
+    || !consumptionLastUpdate
+    || consumptionLastUpdate.getTime() >= monthStart(lastMonthWithConsumption + 1);
+  const openConsumptionMonth = isLastMonthClosed ? '' : (consumption[lastMonthWithConsumption]?.month ?? '');
   const dailyConsumption = consumption.map((item, index) => {
-    const calendarDays = (Date.UTC(2026, 7 + index, 1) - Date.UTC(2026, 6 + index, 1)) / 86400000;
-    const days = index === lastMonthWithConsumption ? elapsedDays : calendarDays;
+    const calendarDays = (monthStart(index + 1) - monthStart(index)) / 86400000;
+    const days = index === lastMonthWithConsumption && !isLastMonthClosed ? elapsedDays : calendarDays;
     return { month: item.month, value: item.value > 0 && days > 0 ? item.value / days : 0 };
   });
   const maccContract = accountOverview.contracts.find((contract) => contract['Tipo de Contrato'].trim().toLowerCase() === 'macc');
@@ -516,6 +582,8 @@ export const parseWorkbook = (input: ArrayBuffer | Uint8Array): DashboardSummary
     pipelineSummary,
     consumption,
     dailyConsumption,
+    subscriptionConsumption,
+    serviceLevel,
     openConsumptionMonth,
     consumptionLastUpdated: consumptionLastUpdate?.toISOString() ?? '',
     maccComparison,

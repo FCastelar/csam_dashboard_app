@@ -74,7 +74,11 @@ export const calculateProjectedBaselineByMonth = (dailyConsumption: Array<{ mont
   const previousMonth = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const previousMonthLabel = previousMonth.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
   const previousMonthDaily = dailyConsumption.find((item) => item.month === previousMonthLabel)?.value ?? 0;
-  if (previousMonthDaily <= 0) return [];
+  // Right after a month closes there is no previous-month daily yet, so the last one on record carries the run-rate.
+  const baselineDaily = previousMonthDaily > 0
+    ? previousMonthDaily
+    : (dailyConsumption.filter((item) => item.value > 0).pop()?.value ?? 0);
+  if (baselineDaily <= 0) return [];
 
   const currentMonthProjection = calculateCurrentMonthProjection(dailyConsumption, currentDate);
   const fiscalYearEnd = currentDate.getMonth() <= 5 ? currentDate.getFullYear() : currentDate.getFullYear() + 1;
@@ -87,7 +91,7 @@ export const calculateProjectedBaselineByMonth = (dailyConsumption: Array<{ mont
     const label = monthLabel(year, month);
     const value = label === currentMonthProjection?.month
       ? currentMonthProjection.value
-      : previousMonthDaily * daysInMonth(year, month);
+      : baselineDaily * daysInMonth(year, month);
     projections.push({ month: label, value });
   }
   return projections;

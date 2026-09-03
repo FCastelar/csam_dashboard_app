@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import { X } from 'lucide-react';
 import { cn } from './cn';
 
 /*
@@ -19,12 +20,25 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
 export function SearchField({
   icon,
   className,
+  onClear,
   ...props
-}: InputHTMLAttributes<HTMLInputElement> & { icon?: ReactNode }) {
+}: InputHTMLAttributes<HTMLInputElement> & { icon?: ReactNode; onClear?: () => void }) {
+  const hasValue = props.value !== undefined && props.value !== '';
   return (
     <div className="relative flex items-center">
       {icon && <span className="pointer-events-none absolute left-3 flex items-center text-mid-gray">{icon}</span>}
-      <input {...props} className={cn(fieldClasses, icon && 'pl-9', className)} />
+      {/* Padding is reserved whether or not the button shows, so the text never shifts. */}
+      <input {...props} className={cn(fieldClasses, icon && 'pl-9', onClear && 'pr-9', className)} />
+      {onClear && hasValue && (
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label="Clear search"
+          className="absolute right-2 flex h-6 w-6 items-center justify-center rounded-pill text-mid-gray transition-colors hover:bg-canvas hover:text-ink"
+        >
+          <X size={14} strokeWidth={1.5} />
+        </button>
+      )}
     </div>
   );
 }

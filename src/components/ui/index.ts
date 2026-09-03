@@ -3,6 +3,7 @@ export { Card, CardHeader, CardTitle, AccentTitle, CardDescription, NestedCard }
 export { Button, IconButton } from './Button';
 export { Badge, TintedBadge } from './Badge';
 export { Input, Select, SearchField, FieldShell } from './Field';
+export { MultiSelect } from './MultiSelect';
 export { Table, TableScroll, THead, TBody, TR, TH, TD, EmptyRow } from './Table';
 export { StatBlock } from './StatBlock';
 export { SegmentedNav } from './SegmentedNav';

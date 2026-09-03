@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Activity, Briefcase, CalendarClock, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock, FileDown, FolderKanban, FolderSync, LayoutDashboard, Moon, Presentation, RefreshCw, Search, Shield, Sun, TrendingUp, UserRound } from 'lucide-react';
+import { Activity, Briefcase, CalendarClock, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock, FileDown, FileSpreadsheet, FolderKanban, FolderSync, LayoutDashboard, Moon, Presentation, RefreshCw, Search, Shield, Sun, TrendingUp, UserRound } from 'lucide-react';
 import type { DashboardSummary } from './types/dashboard';
-import { calculateCurrentMonthProjection, calculateProjectedBaselineByMonth } from './utils/date';
+import copilotMark from './assets/copilot.png';
+import { calculateProjectedBaselineByMonth } from './utils/date';
 import { useDashboardSource } from './hooks/use-dashboard-source';
 import ConnectScreen from './components/ConnectScreen';
-import { ConsumptionChartLazy, DailyChartLazy, MaccChartLazy } from './components/charts/lazy';
+import { ConsumptionChartLazy, MaccChartLazy } from './components/charts/lazy';
 import {
   Badge,
   Button,
@@ -15,6 +16,7 @@ import {
   EmptyRow,
   FieldShell,
   IconButton,
+  MultiSelect,
   NestedCard,
   SearchField,
   SegmentedNav,
@@ -54,6 +56,30 @@ const isCommitted = (value?: string) => ['committed', 'commited'].includes((valu
 // Rejecting ? and & keeps a workbook cell from smuggling extra headers into the mailto link.
 const isEmailAddress = (value: string) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value);
 
+// Excel sometimes prefixes the cell with an apostrophe, so it has to be tolerated before the marker.
+const bulletMarker = /^['"\u2018\u2019]?\s*[-*\u2022\u00b7]\s+/;
+
+/**
+ * The workbook keeps the highlights in one text cell, where the bullets survive
+ * only as leading dashes. Returns undefined when the text is plain prose.
+ */
+const toBullets = (content: string) => {
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // A single-line cell still holds a list when the markers sit mid-string.
+  const items = lines.length > 1
+    ? lines
+    : content.split(/(?=\s['"\u2018\u2019]?[-*\u2022\u00b7]\s)/).map((line) => line.trim()).filter(Boolean);
+  return bulletMarker.test(items[0] ?? '') ? items.map((line) => line.replace(bulletMarker, '')) : undefined;
+};
+
+// Indexes into the fiscal-year consumption array, which starts in July.
+const fiscalQuarterRanges: Record<string, number[]> = {
+  Q1: [0, 1, 2],
+  Q2: [3, 4, 5],
+  Q3: [6, 7, 8],
+  Q4: [9, 10, 11],
+};
+
 const byName = (left: { name: string }, right: { name: string }) =>
   (left.name ?? '').localeCompare(right.name ?? '', undefined, { sensitivity: 'base' });
 
@@ -62,6 +88,8 @@ type DashboardView = 'overview' | 'csu' | 'atu-stu';
 type AtuSortKey = 'vertical' | 'opportunityName' | 'opportunityId' | 'stage' | 'customerCommitment' | 'owner' | 'pipelineTotal' | 'handoff' | 'risk';
 
 type CsuMilestoneSortKey = 'title' | 'milestoneId' | 'opportunityName' | 'owner' | 'estimatedDate' | 'estimatedMonthlyUsage' | 'customerCommitment' | 'status';
+type SubscriptionSortKey = 'name' | 'before' | 'after' | 'difference' | 'percentage';
+type ServiceSortKey = 'name' | 'after' | 'difference' | 'percentage';
 
 const FormulaHelp = ({ label, formula }: { label: string; formula: string }) => (
   <span className="group relative inline-flex">
@@ -142,17 +170,48 @@ function Dashboard({
   const [areCsuMilestonesExpanded, setAreCsuMilestonesExpanded] = useState(false);
   const [areAtuOpportunitiesExpanded, setAreAtuOpportunitiesExpanded] = useState(false);
   const [csuMilestoneSort, setCsuMilestoneSort] = useState<{ key: CsuMilestoneSortKey; direction: 'asc' | 'desc' }>({ key: 'estimatedDate', direction: 'asc' });
+  const [subscriptionLimit, setSubscriptionLimit] = useState('5');
+  const [subscriptionField, setSubscriptionField] = useState<'name' | 'id'>('name');
+  const [subscriptionSearch, setSubscriptionSearch] = useState('');
+  const [subscriptionSort, setSubscriptionSort] = useState<{ key: SubscriptionSortKey; direction: 'asc' | 'desc' }>({ key: 'difference', direction: 'desc' });
+  const [serviceLimit, setServiceLimit] = useState('5');
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceSort, setServiceSort] = useState<{ key: ServiceSortKey; direction: 'asc' | 'desc' }>({ key: 'difference', direction: 'desc' });
+  const [growthMonths, setGrowthMonths] = useState<string[]>([]);
+  const [growthQuarter, setGrowthQuarter] = useState('all');
+  const [growthCommitment, setGrowthCommitment] = useState('all');
   const [atuVerticalFilter, setAtuVerticalFilter] = useState('all');
   const [atuStageFilter, setAtuStageFilter] = useState('all');
   const [atuCommitmentFilter, setAtuCommitmentFilter] = useState('all');
   const [atuStatusFilter, setAtuStatusFilter] = useState('all');
   const [atuOwnershipFilter, setAtuOwnershipFilter] = useState('all');
   const [atuOwnerFilter, setAtuOwnerFilter] = useState('all');
+  const [atuQuarter, setAtuQuarter] = useState('all');
   const [atuPeriodFilter, setAtuPeriodFilter] = useState('all');
   const [expandedAtuOpportunities, setExpandedAtuOpportunities] = useState<Record<string, boolean>>({});
   const [atuSort, setAtuSort] = useState<{ key: AtuSortKey; direction: 'asc' | 'desc' }>({ key: 'vertical', direction: 'asc' });
   const [mode, setMode] = useState<'rob' | 'presentation'>('rob');
+  const [pendingPanel, setPendingPanel] = useState<string>();
   const t = translations[language];
+
+  /** Presentation metrics are shortcuts: each one opens the ROB panel it was taken from. */
+  const openRobPanel = (targetView: DashboardView, panelId: string) => {
+    setMode('rob');
+    setView(targetView);
+    setPendingPanel(panelId);
+  };
+
+  // The panel only exists after the view swap renders, so the scroll waits a commit.
+  useEffect(() => {
+    if (!pendingPanel) return;
+    const panel = document.getElementById(pendingPanel);
+    setPendingPanel(undefined);
+    if (!panel) return;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    panel.classList.add('is-flashing');
+    window.setTimeout(() => panel.classList.remove('is-flashing'), 1800);
+  }, [pendingPanel]);
+
 
   const accountLabel = (file: string) => file.replace(/_Account_Executive_View\.xlsx$/i, '').replace(/\.xlsx$/i, '').replace(/[_-]+/g, ' ');
   const accountName = selectedAccount ? selectedAccount.replace(/_Account_Executive_View\.xlsx$/i, '').replace(/\.xlsx$/i, '') : 'CAF';
@@ -185,6 +244,15 @@ function Dashboard({
 
   const handleExportPdf = () => {
     window.print();
+  };
+
+  /** Builds the workbook in the browser: the rows never leave the machine. */
+  const exportRows = async (rows: Array<Record<string, string | number>>, sheetName: string, fileName: string) => {
+    if (!rows.length) return;
+    const XLSX = await import('xlsx');
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows), sheetName);
+    XLSX.writeFile(book, fileName);
   };
 
   const verticalOptions = ['all', ...new Set((data.csuVerticalSummary ?? []).map((vertical) => vertical.name))];
@@ -267,23 +335,172 @@ function Dashboard({
 
   const pbo = projectedYearTotal + data.pipelineSummary.committedValue;
 
-  const openMonthIndex = data.consumption.findIndex((item) => item.month === data.openConsumptionMonth);
+  const openMonthIndex = data.openConsumptionMonth
+    ? data.consumption.findIndex((item) => item.month === data.openConsumptionMonth)
+    : -1;
+
+  // With no month in progress the last month carrying ACR is already closed.
+  const lastClosedIndex = openMonthIndex >= 0
+    ? openMonthIndex - 1
+    : data.consumption.reduce((last, item, index) => (item.value > 0 ? index : last), -1);
 
   const lastClosedMonth = useMemo(() => {
-    const closedIndex = openMonthIndex > 0 ? openMonthIndex - 1 : -1;
-    if (closedIndex < 0) return undefined;
-    const closed = data.consumption[closedIndex];
-    const previous = closedIndex > 0 ? data.consumption[closedIndex - 1] : undefined;
-    const monthOverMonth = previous && previous.value > 0 ? ((closed.value - previous.value) / previous.value) * 100 : undefined;
-    return { ...closed, monthOverMonth };
-  }, [data.consumption, openMonthIndex]);
+    if (lastClosedIndex < 0) return undefined;
+    const closed = data.consumption[lastClosedIndex];
+    const previous = lastClosedIndex > 0 ? data.consumption[lastClosedIndex - 1] : undefined;
+    const hasPrevious = previous !== undefined && previous.value > 0;
+    return {
+      ...closed,
+      monthOverMonth: hasPrevious ? ((closed.value - previous.value) / previous.value) * 100 : undefined,
+      monthOverMonthValue: hasPrevious ? closed.value - previous.value : undefined,
+      previousMonth: hasPrevious ? previous.month : undefined,
+    };
+  }, [data.consumption, lastClosedIndex]);
 
-  const dailyMoM = useMemo(() => {
-    const [previous, current] = data.dailyConsumption.filter((item) => item.value > 0).slice(-2);
-    return previous && current && previous.value > 0 ? ((current.value - previous.value) / previous.value) * 100 : undefined;
-  }, [data.dailyConsumption]);
+  // Taken from the projected row so both tables and the pitch always quote the same number.
+  const currentMonthProjection = useMemo(() => {
+    const label = referenceDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    return projectedConsumption.find((item) => item.month === label);
+  }, [projectedConsumption, referenceDate]);
 
-  const currentMonthProjection = useMemo(() => calculateCurrentMonthProjection(data.dailyConsumption, referenceDate), [data.dailyConsumption, referenceDate]);
+  // Always the two most recent months on record, so it rolls forward on its own as data lands.
+  const subscriptionMovers = useMemo(() => {
+    const rows = data.subscriptionConsumption ?? [];
+    const monthKeys = [...new Set(rows.map((item) => item.monthKey))].sort();
+    const [previousKey, currentKey] = monthKeys.slice(-2);
+    if (!previousKey || !currentKey) return undefined;
+
+    const totalsFor = (key: string) => new Map(rows.filter((item) => item.monthKey === key).map((item) => [item.id || item.name, item]));
+    const previous = totalsFor(previousKey);
+    const current = totalsFor(currentKey);
+
+    const compared = [...new Set([...previous.keys(), ...current.keys()])].map((key) => {
+      const entry = current.get(key) ?? previous.get(key);
+      const before = previous.get(key)?.value ?? 0;
+      const after = current.get(key)?.value ?? 0;
+      const difference = after - before;
+      return { id: entry?.id ?? key, name: entry?.name ?? key, before, after, difference, percentage: before > 0 ? (difference / before) * 100 : undefined };
+    });
+
+    return {
+      previousMonth: rows.find((item) => item.monthKey === previousKey)?.month ?? '',
+      currentMonth: rows.find((item) => item.monthKey === currentKey)?.month ?? '',
+      // Biggest movers in either direction are what the review needs to explain.
+      rows: compared.sort((left, right) => Math.abs(right.difference) - Math.abs(left.difference)),
+    };
+  }, [data.subscriptionConsumption]);
+
+  const setSubscriptionSortKey = (key: SubscriptionSortKey) =>
+    setSubscriptionSort((current) => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' }));
+
+  // Search and sort follow whichever identifier is on screen.
+  const matchedSubscriptions = useMemo(() => {
+    const term = subscriptionSearch.trim().toLowerCase();
+    const labelled = (subscriptionMovers?.rows ?? []).map((item) => ({ ...item, label: subscriptionField === 'id' ? item.id : item.name }));
+    return term ? labelled.filter((item) => item.label.toLowerCase().includes(term)) : labelled;
+  }, [subscriptionMovers, subscriptionSearch, subscriptionField]);
+
+  // The row count picks the biggest movers; the column sort only reorders what is already on screen.
+  const visibleSubscriptions = useMemo(() => {
+    const limited = subscriptionLimit === 'all' ? matchedSubscriptions : matchedSubscriptions.slice(0, Number(subscriptionLimit));
+    return [...limited].sort((left, right) => {
+      const comparison = subscriptionSort.key === 'name'
+        ? left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })
+        : (left[subscriptionSort.key] ?? Number.NEGATIVE_INFINITY) - (right[subscriptionSort.key] ?? Number.NEGATIVE_INFINITY);
+      return subscriptionSort.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [matchedSubscriptions, subscriptionLimit, subscriptionSort]);
+
+  /*
+   * The sheet only reports the closed month and its MoM %, so the money growth
+   * comes from rebuilding the previous month: before = after / (1 + pct/100).
+   */
+  const serviceMovers = useMemo(() => (data.serviceLevel?.services ?? []).map((item) => {
+    const factor = item.momPercentage === undefined ? undefined : 1 + item.momPercentage / 100;
+    const before = factor !== undefined && Math.abs(factor) > 1e-9 ? item.lastMonth / factor : undefined;
+    return {
+      name: item.name,
+      after: item.lastMonth,
+      before,
+      difference: before === undefined ? undefined : item.lastMonth - before,
+      percentage: item.momPercentage,
+    };
+  }).sort((left, right) => Math.abs(right.difference ?? 0) - Math.abs(left.difference ?? 0)), [data.serviceLevel]);
+
+  const setServiceSortKey = (key: ServiceSortKey) =>
+    setServiceSort((current) => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' }));
+
+  const matchedServices = useMemo(() => {
+    const term = serviceSearch.trim().toLowerCase();
+    return term ? serviceMovers.filter((item) => item.name.toLowerCase().includes(term)) : serviceMovers;
+  }, [serviceMovers, serviceSearch]);
+
+  const visibleServices = useMemo(() => {
+    const limited = serviceLimit === 'all' ? matchedServices : matchedServices.slice(0, Number(serviceLimit));
+    return [...limited].sort((left, right) => {
+      const comparison = serviceSort.key === 'name'
+        ? left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' })
+        : (left[serviceSort.key] ?? Number.NEGATIVE_INFINITY) - (right[serviceSort.key] ?? Number.NEGATIVE_INFINITY);
+      return serviceSort.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [matchedServices, serviceLimit, serviceSort]);
+
+  /*
+   * How much of the growth the milestones promised for a period actually showed
+   * up in the ACR. Only closed months have a realized figure to compare against.
+   */
+  // Quarter and months are mutually exclusive; with neither set the period is the whole fiscal year.
+  const growthPeriodLabel = growthQuarter !== 'all'
+    ? growthQuarter
+    : growthMonths.length === 1 ? growthMonths[0] : growthMonths.length ? `${growthMonths.length}Months` : 'All';
+
+  const expectedGrowth = useMemo(() => {
+    const quarterIndexes = growthQuarter === 'all' ? undefined : fiscalQuarterRanges[growthQuarter];
+    const indexes = (quarterIndexes
+      ? quarterIndexes.filter((index) => index < data.consumption.length)
+      : growthMonths.length
+        ? data.consumption.map((item, index) => (growthMonths.includes(item.month) ? index : -1)).filter((index) => index >= 0)
+        : data.consumption.map((_, index) => index)
+    ).sort((left, right) => left - right);
+    if (!indexes.length) return undefined;
+
+    const first = indexes[0];
+    const last = indexes[indexes.length - 1];
+    // Consumption starts in July 2026, so the index maps straight onto the calendar.
+    const monthKeys = indexes.map((index) => new Date(Date.UTC(2026, 6 + index, 1)).toISOString().slice(0, 7));
+    const dueMilestones = data.milestones.filter((milestone) => milestone.estimatedDate && monthKeys.includes(milestone.estimatedDate.slice(0, 7)));
+    const scoped = growthCommitment === 'all'
+      ? dueMilestones
+      : dueMilestones.filter((milestone) => isCommitted(milestone.customerCommitment) === (growthCommitment === 'committed'));
+    const expected = scoped.reduce((sum, milestone) => sum + (milestone.estimatedMonthlyUsage ?? 0), 0);
+
+    // Growth is the ACR level at the last closed month minus the level just before the period.
+    const closedInRange = indexes.filter((index) => index <= lastClosedIndex);
+    const lastClosed = closedInRange.length ? closedInRange[closedInRange.length - 1] : -1;
+    const baseIndex = Math.max(first - 1, 0);
+    const realized = lastClosed > baseIndex ? data.consumption[lastClosed].value - data.consumption[baseIndex].value : undefined;
+
+    return {
+      month: indexes.length === 1
+        ? data.consumption[first].month
+        : quarterIndexes
+          ? `${growthQuarter} (${data.consumption[first].month} - ${data.consumption[last].month})`
+          : `${indexes.length} months (${data.consumption[first].month} - ${data.consumption[last].month})`,
+      expected,
+      dueMilestones: scoped,
+      milestones: scoped.length,
+      committed: dueMilestones.filter((milestone) => isCommitted(milestone.customerCommitment)).length,
+      uncommitted: dueMilestones.filter((milestone) => !isCommitted(milestone.customerCommitment)).length,
+      realized,
+      coverage: indexes.length > 1 ? `${closedInRange.length} of ${indexes.length} months closed` : undefined,
+      realizedThrough: realized === undefined ? undefined : data.consumption[lastClosed].month,
+      missingReason: realized !== undefined
+        ? undefined
+        : first === 0 && lastClosed === 0 ? 'No prior month in the fiscal year' : 'Period not closed yet',
+      gap: realized === undefined ? undefined : realized - expected,
+      attainment: realized === undefined || expected <= 0 ? undefined : (realized / expected) * 100,
+    };
+  }, [data.consumption, data.milestones, growthQuarter, growthMonths, growthCommitment, lastClosedIndex]);
 
   const maccDifferenceTotal = useMemo(() => {
     // The month still being loaded has partial ACR, so it would show an artificial gap.
@@ -297,41 +514,33 @@ function Dashboard({
     return data.maccTotal > 0 ? (totalAcr / data.maccTotal) * 100 : undefined;
   }, [data.maccComparison, data.maccTotal]);
 
-  const currentCsuMilestones = useMemo(() => {
-    const now = new Date();
-    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const quarterEndMonth = [8, 11, 2, 5][['Q1', 'Q2', 'Q3', 'Q4'].indexOf(fiscalQuarter(now))];
-    const quarterEndYear = quarterEndMonth < now.getMonth() ? now.getFullYear() + 1 : now.getFullYear();
-    const windowEnd = new Date(quarterEndYear, quarterEndMonth + 2, 0, 23, 59, 59, 999);
+  const setCsuMilestoneSortKey = (key: CsuMilestoneSortKey) => setCsuMilestoneSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }));
 
-    return data.milestones
-      .filter((milestone) => {
-        if (!isCommitted(milestone.customerCommitment)) return false;
-        if (!milestone.estimatedDate) return false;
-        const estimatedDate = new Date(milestone.estimatedDate);
-        return !Number.isNaN(estimatedDate.getTime()) && estimatedDate >= currentMonthStart && estimatedDate <= windowEnd;
-      })
-      .sort((left, right) => new Date(left.estimatedDate ?? 0).getTime() - new Date(right.estimatedDate ?? 0).getTime());
-  }, [data.milestones, refreshStamp]);
-
-  const visibleCsuMilestones = useMemo(() => [...currentCsuMilestones].sort((left, right) => {
+  // The list behind the growth numbers, so both always answer to the same filters.
+  const growthMilestones = useMemo(() => [...(expectedGrowth?.dueMilestones ?? [])].sort((left, right) => {
     const leftValue = left[csuMilestoneSort.key];
     const rightValue = right[csuMilestoneSort.key];
     const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
       ? leftValue - rightValue
       : String(leftValue ?? '').localeCompare(String(rightValue ?? ''), undefined, { numeric: true, sensitivity: 'base' });
     return csuMilestoneSort.direction === 'asc' ? comparison : -comparison;
-  }), [currentCsuMilestones, csuMilestoneSort]);
+  }), [expectedGrowth, csuMilestoneSort]);
 
-  const setCsuMilestoneSortKey = (key: CsuMilestoneSortKey) => setCsuMilestoneSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }));
+  // Opportunities carry no date of their own, so their quarters come from the milestones under them.
+  const opportunityQuarters = useMemo(() => {
+    const byOpportunity = new Map<string, Set<string>>();
+    data.milestones.forEach((milestone) => {
+      if (!milestone.opportunityId || !milestone.estimatedDate) return;
+      const estimatedDate = new Date(milestone.estimatedDate);
+      if (Number.isNaN(estimatedDate.getTime())) return;
+      const quarters = byOpportunity.get(milestone.opportunityId) ?? new Set<string>();
+      quarters.add(fiscalQuarter(estimatedDate));
+      byOpportunity.set(milestone.opportunityId, quarters);
+    });
+    return byOpportunity;
+  }, [data.milestones]);
 
-  const csuMilestoneTotals = useMemo(() => visibleCsuMilestones.reduce((totals, milestone) => ({
-    estimatedMonthlyUsage: totals.estimatedMonthlyUsage + (milestone.estimatedMonthlyUsage ?? 0),
-    onTrack: totals.onTrack + (milestone.status === 'On Track' ? 1 : 0),
-    blocked: totals.blocked + (milestone.status === 'Blocked' ? 1 : 0),
-  }), { estimatedMonthlyUsage: 0, onTrack: 0, blocked: 0 }), [visibleCsuMilestones]);
-
-  const filteredAtuOpportunities = useMemo(() => data.atuOpportunities.filter((opportunity) => (atuVerticalFilter === 'all' || opportunity.vertical === atuVerticalFilter) && (atuStageFilter === 'all' || opportunity.stage === atuStageFilter) && (atuCommitmentFilter === 'all' || opportunity.customerCommitment === atuCommitmentFilter) && (atuStatusFilter === 'all' || opportunity.overallStatus === atuStatusFilter) && (atuOwnershipFilter === 'all' || opportunity.ownership === atuOwnershipFilter) && (atuOwnerFilter === 'all' || opportunity.owner === atuOwnerFilter) && (atuPeriodFilter === 'all' || (opportunity.nextMilestoneDate && new Date(opportunity.nextMilestoneDate).getTime() < Date.now() + 30 * 86400000))), [data.atuOpportunities, atuVerticalFilter, atuStageFilter, atuCommitmentFilter, atuStatusFilter, atuOwnershipFilter, atuOwnerFilter, atuPeriodFilter]);
+  const filteredAtuOpportunities = useMemo(() => data.atuOpportunities.filter((opportunity) => (atuVerticalFilter === 'all' || opportunity.vertical === atuVerticalFilter) && (atuStageFilter === 'all' || opportunity.stage === atuStageFilter) && (atuCommitmentFilter === 'all' || opportunity.customerCommitment === atuCommitmentFilter) && (atuStatusFilter === 'all' || opportunity.overallStatus === atuStatusFilter) && (atuOwnershipFilter === 'all' || opportunity.ownership === atuOwnershipFilter) && (atuOwnerFilter === 'all' || opportunity.owner === atuOwnerFilter) && (atuQuarter === 'all' || Boolean(opportunityQuarters.get(opportunity.opportunityId)?.has(atuQuarter))) && (atuPeriodFilter === 'all' || (opportunity.nextMilestoneDate && new Date(opportunity.nextMilestoneDate).getTime() < Date.now() + 30 * 86400000))), [data.atuOpportunities, atuVerticalFilter, atuStageFilter, atuCommitmentFilter, atuStatusFilter, atuOwnershipFilter, atuOwnerFilter, atuQuarter, opportunityQuarters, atuPeriodFilter]);
 
   const sortedAtuOpportunities = useMemo(() => [...filteredAtuOpportunities].sort((left, right) => {
     const leftValue = left[atuSort.key];
@@ -410,28 +619,24 @@ function Dashboard({
     };
   }), [data.consumption, projectedConsumption]);
 
-  const dailySeries = useMemo(
-    () => data.dailyConsumption.map((item) => ({
-      month: item.month,
-      value: item.value > 0 ? item.value : null,
-    })),
-    [data.dailyConsumption],
-  );
-
   const maccSeries = useMemo(() => data.maccComparison.map((item) => ({
     month: item.month,
     expected: item.actualAcr > 0 ? item.expectedMonthly : null,
     actual: item.actualAcr > 0 ? item.actualAcr : null,
   })), [data.maccComparison]);
 
-  /** Ordered as a pitch: where we are, where we land, what is in the funnel, how delivery is going. */
+  /** Ordered as a pitch: what closed, where the year lands, what is in the funnel. */
+  const signedCurrency = (value?: number) => value === undefined
+    ? '-'
+    : `${value >= 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`;
+
   const presentationGroups: Array<{
     title: string;
     caption?: string;
-    cards: Array<{ label: string; value: string; hint?: string; tone?: 'positive' | 'negative' }>;
+    cards: Array<{ label: string; value: string; hint?: string; tone?: 'positive' | 'negative'; panel: string }>;
   }> = [
     {
-      title: '1. Current Results',
+      title: '1. Where We Stand',
       caption: data.consumptionLastUpdated
         ? `Consumption updated on ${new Date(data.consumptionLastUpdated).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`
         : undefined,
@@ -439,45 +644,75 @@ function Dashboard({
         {
           label: lastClosedMonth ? `Last Month Close (${lastClosedMonth.month})` : 'Last Month Close',
           value: lastClosedMonth ? formatCurrency(lastClosedMonth.value) : '-',
-          hint: lastClosedMonth?.monthOverMonth === undefined ? undefined : `MoM ${formatPercent(lastClosedMonth.monthOverMonth)}`,
+          hint: 'Azure ACR invoiced',
+          panel: 'panel-monthly-consumption',
+        },
+        {
+          label: 'Month over Month',
+          value: signedCurrency(lastClosedMonth?.monthOverMonthValue),
+          hint: lastClosedMonth?.monthOverMonth === undefined
+            ? undefined
+            : `${formatPercent(lastClosedMonth.monthOverMonth)} vs ${lastClosedMonth.previousMonth}`,
+          tone: lastClosedMonth?.monthOverMonthValue === undefined
+            ? undefined
+            : lastClosedMonth.monthOverMonthValue >= 0 ? 'positive' : 'negative',
+          panel: 'panel-monthly-consumption',
         },
         {
           label: currentMonthProjection ? `Projected Close (${currentMonthProjection.month})` : 'Projected Close',
           value: currentMonthProjection ? formatCurrency(currentMonthProjection.value) : '-',
-        },
-        { label: 'Daily MoM%', value: formatPercent(dailyMoM), tone: dailyMoM === undefined ? undefined : dailyMoM >= 0 ? 'positive' : 'negative' },
-        {
-          label: 'MACC to ACR Difference',
-          value: maccDifferenceTotal === undefined ? '-' : `${maccDifferenceTotal >= 0 ? '+' : ''}${formatCurrency(maccDifferenceTotal)}`,
-          tone: maccDifferenceTotal === undefined ? undefined : maccDifferenceTotal >= 0 ? 'positive' : 'negative',
+          hint: 'Month in progress at the current daily run rate',
+          panel: 'panel-monthly-consumption',
         },
       ],
     },
     {
-      title: '2. Fiscal Year Projection',
+      title: '2. Where We Land',
+      caption: `Fiscal year through ${data.consumption[data.consumption.length - 1]?.month ?? ''}`,
       cards: [
-        { label: 'Azure ACR Projected', value: formatCurrency(projectedYearTotal) },
-        { label: 'PBO', value: formatCurrency(pbo) },
+        {
+          label: 'Azure ACR Projected',
+          value: formatCurrency(projectedYearTotal),
+          hint: 'Closed actuals + projected baseline',
+          panel: 'panel-opportunities',
+        },
+        {
+          label: 'MACC to ACR Difference',
+          value: signedCurrency(maccDifferenceTotal),
+          hint: 'Closed months only',
+          tone: maccDifferenceTotal === undefined ? undefined : maccDifferenceTotal >= 0 ? 'positive' : 'negative',
+          panel: 'panel-macc',
+        },
       ],
     },
     {
       title: '3. Pipeline',
+      caption: `${data.pipelineSummary.committedOpportunities + data.pipelineSummary.uncommittedOpportunities} opportunities`,
       cards: [
-        { label: 'Committed Pipeline', value: formatCurrency(data.pipelineSummary.committedValue) },
-        { label: 'Uncommitted Pipeline', value: formatCurrency(data.pipelineSummary.uncommittedValue) },
-        { label: 'Total Pipeline', value: formatCurrency(data.pipelineSummary.committedValue + data.pipelineSummary.uncommittedValue) },
-      ],
-    },
-    {
-      title: '4. Milestone Execution',
-      cards: [
-        { label: 'Active Milestones', value: formatNumber(data.kpis.milestonesTracked) },
-        { label: 'Committed Milestones', value: formatNumber(data.kpis.milestonesCommitted) },
-        { label: 'Uncommitted Milestones', value: formatNumber(data.kpis.milestonesUncommitted) },
-        { label: 'At Risk or Blocked', value: formatNumber(data.kpis.milestonesAtRiskOrBlocked), tone: data.kpis.milestonesAtRiskOrBlocked > 0 ? 'negative' : 'positive' },
+        {
+          label: 'Committed Pipeline',
+          value: formatCurrency(data.pipelineSummary.committedValue),
+          hint: `${data.pipelineSummary.committedOpportunities} opportunities`,
+          panel: 'panel-opportunities',
+        },
+        {
+          label: 'Uncommitted Pipeline',
+          value: formatCurrency(data.pipelineSummary.uncommittedValue),
+          hint: `${data.pipelineSummary.uncommittedOpportunities} opportunities`,
+          panel: 'panel-opportunities',
+        },
+        {
+          label: 'Total Pipeline',
+          value: formatCurrency(data.pipelineSummary.committedValue + data.pipelineSummary.uncommittedValue),
+          panel: 'panel-opportunities',
+        },
       ],
     },
   ];
+
+  // Fixed at five and unaffected by the ROB filters: the deck always shows the same cut.
+  const presentationServiceMovers = useMemo(() => serviceMovers.slice(0, 5), [serviceMovers]);
+
 
   return (
     <div
@@ -530,16 +765,17 @@ function Dashboard({
             >
               <RefreshCw size={16} strokeWidth={1.5} className={isRefreshing ? 'animate-spin' : ''} />
             </IconButton>
-            <Button onClick={() => setMode((value) => (value === 'rob' ? 'presentation' : 'rob'))} className="min-w-[8rem]">
-              {mode === 'rob'
-                ? <><Presentation size={15} strokeWidth={1.5} /> Presentation</>
-                : <><LayoutDashboard size={15} strokeWidth={1.5} /> ROB</>}
-            </Button>
+            {/* The toggle is always last, so it keeps its place whether or not the export is there. */}
             {mode === 'presentation' && (
               <Button onClick={handleExportPdf} className="min-w-[7.5rem]">
                 <FileDown size={15} strokeWidth={1.5} /> PDF Export
               </Button>
             )}
+            <Button onClick={() => setMode((value) => (value === 'rob' ? 'presentation' : 'rob'))} className="min-w-[9rem]">
+              {mode === 'rob'
+                ? <><Presentation size={15} strokeWidth={1.5} /> Presentation</>
+                : <><LayoutDashboard size={15} strokeWidth={1.5} /> ROB</>}
+            </Button>
             <div className="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2 text-caption tracking-normal text-mid-gray">
               <span>
                 {t.lastUpdate}: <span className="text-ink">{new Date(data.lastUpdated).toLocaleString(language === 'pt' ? 'pt-BR' : language === 'es' ? 'es-ES' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
@@ -596,6 +832,7 @@ function Dashboard({
               <SearchField
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onClear={() => setSearch('')}
                 placeholder={t.searchOpportunity}
                 icon={<Search size={15} strokeWidth={1.5} />}
                 className="w-64"
@@ -650,7 +887,7 @@ function Dashboard({
           <Card>
             <CardTitle>{t.milestones}</CardTitle>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-              <SearchField value={milestoneSearch} onChange={(e) => setMilestoneSearch(e.target.value)} placeholder={t.searchMilestone} />
+              <SearchField value={milestoneSearch} onChange={(e) => setMilestoneSearch(e.target.value)} onClear={() => setMilestoneSearch('')} placeholder={t.searchMilestone} />
               <Select value={milestoneStatusFilter} onChange={(e) => setMilestoneStatusFilter(e.target.value)}><option value="all">{t.milestoneStatus}</option>{milestoneStatusOptions.filter(v => v !== 'all').map(v => <option key={v} value={v}>{v}</option>)}</Select>
               <Select value={milestoneCommitmentFilter} onChange={(e) => setMilestoneCommitmentFilter(e.target.value)}><option value="all">{t.commitment}</option>{milestoneCommitmentOptions.filter(v => v !== 'all').map(v => <option key={v} value={v}>{v}</option>)}</Select>
               <Select value={milestoneOwnerFilter} onChange={(e) => setMilestoneOwnerFilter(e.target.value)}><option value="all">{t.owner}</option>{milestoneOwnerOptions.filter(v => v !== 'all').map(v => <option key={v} value={v}>{v}</option>)}</Select>
@@ -815,57 +1052,6 @@ function Dashboard({
             <CardTitle>Success Programs</CardTitle>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">{data.accountOverview.successPrograms.map((program, index) => <NestedCard key={`${program['Success Program']}-${index}`}><strong className="font-medium text-ink">{program['Success Program'] || 'Not informed'}</strong><div className="text-mid-gray">{program.Vertical} · {program.Atual} · {program.Unidade} · {program.Status}</div></NestedCard>)}</div>
           </Card>
-          {/* Only the table scrolls sideways: on the panel the scrollbar would shrink the cards above. */}
-          <Card>
-            <CardHeader>
-              <button
-                type="button"
-                onClick={() => setAreCsuMilestonesExpanded((value) => !value)}
-                aria-expanded={areCsuMilestonesExpanded}
-                className="inline-flex items-center gap-2 text-subheading font-semibold text-ink transition-colors hover:text-mid-gray"
-              >
-                {areCsuMilestonesExpanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
-                CSU Milestones
-              </button>
-              <Badge>{visibleCsuMilestones.length} committed milestones in period</Badge>
-            </CardHeader>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <StatBlock label="Total Est. Monthly Usage" value={<span className="tabular-nums">{formatCurrency(csuMilestoneTotals.estimatedMonthlyUsage)}</span>} />
-              <StatBlock label="On Track" value={<span className="tabular-nums" style={{ color: statusColor('On Track') }}>{csuMilestoneTotals.onTrack}</span>} />
-              <StatBlock label="Blocked" value={<span className="tabular-nums" style={{ color: statusColor('Blocked') }}>{csuMilestoneTotals.blocked}</span>} />
-            </div>
-            {areCsuMilestonesExpanded && <TableScroll className="mt-4"><Table>
-              <THead><tr>
-                {([['Milestone', 'title'], ['Milestone ID', 'milestoneId'], ['Opportunity', 'opportunityName'], ['Owner', 'owner'], ['Estimated Date', 'estimatedDate'], ['Est. Monthly Usage', 'estimatedMonthlyUsage'], ['Customer Commitment', 'customerCommitment']] as const).map(([header, key]) => (
-                  <TH key={key}>
-                    <SortHeader label={header} active={csuMilestoneSort.key === key} direction={csuMilestoneSort.direction} onClick={() => setCsuMilestoneSortKey(key)} />
-                  </TH>
-                ))}
-                <TH>Quarter</TH>
-                <TH>
-                  <SortHeader label="Status" active={csuMilestoneSort.key === 'status'} direction={csuMilestoneSort.direction} onClick={() => setCsuMilestoneSortKey('status')} />
-                </TH>
-              </tr></THead>
-              <TBody>
-                {visibleCsuMilestones.map((milestone, index) => {
-                  const milestoneDate = new Date(milestone.estimatedDate ?? '');
-                  const quarter = fiscalQuarter(milestoneDate);
-                  return <TR key={`${milestone.milestoneId}-${index}`}>
-                    <TD className="font-medium">{milestone.title}</TD>
-                    <TD>{milestone.milestoneUrl ? <a href={milestone.milestoneUrl} target="_blank" rel="noreferrer" className="font-medium text-accent underline underline-offset-2 transition-colors hover:opacity-80">{milestone.milestoneId}</a> : milestone.milestoneId}</TD>
-                    <TD>{milestone.opportunityName || '-'}</TD>
-                    <TD>{milestone.owner}</TD>
-                    <TD>{milestone.estimatedDateText}</TD>
-                    <TD className="tabular-nums">{milestone.estimatedMonthlyUsage === undefined ? '-' : formatCurrency(milestone.estimatedMonthlyUsage)}</TD>
-                    <TD>{milestone.customerCommitment ?? '-'}</TD>
-                    <TD><TintedBadge tint={quarterPillStyle(quarter)}>{quarter}</TintedBadge></TD>
-                    <TD><TintedBadge tint={statusPillStyle(milestone.status)}>{milestone.status}</TintedBadge></TD>
-                  </TR>;
-                })}
-                {!visibleCsuMilestones.length && <EmptyRow colSpan={9}>No milestones in the selected period.</EmptyRow>}
-              </TBody>
-            </Table></TableScroll>}
-          </Card>
         </section>}
 
 
@@ -881,7 +1067,14 @@ function Dashboard({
                 <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-12">
                   {group.cards.map((card) => (
                     // Centering inside each equal column keeps the outer margins symmetric.
-                    <div key={card.label} className="min-w-0 text-center" style={{ gridColumn: `span ${12 / group.cards.length}` }}>
+                    <button
+                      key={card.label}
+                      type="button"
+                      onClick={() => openRobPanel('atu-stu', card.panel)}
+                      title="Open this panel in the ROB view"
+                      className="motion-nested min-w-0 rounded-nested px-2 py-1 text-center hover:bg-surface-alt"
+                      style={{ gridColumn: `span ${12 / group.cards.length}` }}
+                    >
                       {/* Fixed label height keeps every value on the same baseline. */}
                       <div className="flex min-h-[2rem] items-start justify-center text-caption font-medium uppercase tracking-[0.6px] text-mid-gray">{card.label}</div>
                       <div
@@ -891,34 +1084,85 @@ function Dashboard({
                         {card.value}
                       </div>
                       {card.hint && <div className="mt-1 text-caption tracking-normal text-mid-gray">{card.hint}</div>}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </Card>
             ))}
+
+            <Card>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => openRobPanel('atu-stu', 'panel-service-movers')}
+                  title="Open this panel in the ROB view"
+                  className="text-subheading font-semibold text-ink transition-colors hover:text-mid-gray"
+                >
+                  4. What Moved the Number
+                </button>
+                <span className="text-caption tracking-normal text-mid-gray">
+                  {data.serviceLevel?.services.length
+                    ? `Top 5 service movers · ${data.serviceLevel.previousMonth || '-'} → ${data.serviceLevel.currentMonth || '-'}`
+                    : 'No service level data'}
+                </span>
+              </div>
+              <Table className="mt-4">
+                <THead><tr>
+                  <TH>Service or FRA group</TH>
+                  <TH>Invoiced {data.serviceLevel?.currentMonth || '-'}</TH>
+                  <TH>MoM</TH>
+                  <TH>MoM %</TH>
+                </tr></THead>
+                <TBody>
+                  {presentationServiceMovers.map((item) => (
+                    <TR key={item.name}>
+                      <TD className="font-medium">{item.name}</TD>
+                      <TD className="tabular-nums">{formatCurrency(item.after)}</TD>
+                      <TD className="tabular-nums" style={{ color: toneColor(item.difference === undefined ? undefined : item.difference >= 0 ? 'positive' : 'negative') }}>
+                        {signedCurrency(item.difference)}
+                      </TD>
+                      <TD className="tabular-nums" style={{ color: toneColor(item.percentage === undefined ? undefined : item.percentage >= 0 ? 'positive' : 'negative') }}>
+                        {formatPercent(item.percentage)}
+                      </TD>
+                    </TR>
+                  ))}
+                  {!presentationServiceMovers.length && <EmptyRow colSpan={4}>No service level data in this workbook.</EmptyRow>}
+                </TBody>
+              </Table>
+            </Card>
           </div>
 
           <Card>
             <CardTitle>5. Comments</CardTitle>
+            {/* Stays in the PDF: whoever reads the deck has to know where the text came from. */}
+            <p className="mt-2 flex items-center gap-1.5 text-caption tracking-normal text-mid-gray">
+              <img src={copilotMark} alt="" width={14} height={14} className="shrink-0" />
+              Copilot generated from the workbook data — review before sharing.
+            </p>
             <div className="mt-4 space-y-5">
               {([
                 ['Opportunities', data.executiveHighlights.opportunities, statusColor('On Track')],
                 ['Risks', data.executiveHighlights.risks, statusColor('Blocked')],
                 ['Asks', data.executiveHighlights.asks, statusColor('Planning')],
                 ['Pending', data.executiveHighlights.pending, statusColor('At Risk')],
-              ] as const).map(([label, content, color]) => (
-                <div key={label} className="border-l-2 pl-3" style={{ borderLeftColor: color }}>
-                  <h3 className="text-caption font-medium uppercase tracking-[0.6px]" style={{ color }}>{label}</h3>
-                  <p className="mt-1 whitespace-pre-line text-body text-mid-gray">{content}</p>
-                </div>
-              ))}
+              ] as const).map(([label, content, color]) => {
+                const bullets = toBullets(content);
+                return (
+                  <div key={label} className="border-l-2 pl-3" style={{ borderLeftColor: color }}>
+                    <h3 className="text-caption font-medium uppercase tracking-[0.6px]" style={{ color }}>{label}</h3>
+                    {bullets
+                      ? <ul className="mt-1 list-disc space-y-1 pl-4 text-body text-mid-gray marker:text-hairline">{bullets.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                      : <p className="mt-1 whitespace-pre-line text-body text-mid-gray">{content}</p>}
+                  </div>
+                );
+              })}
             </div>
           </Card>
         </section>}
 
         {mode === 'rob' && view === 'atu-stu' && <section className="mt-6 space-y-6">
           {/* Only the table scrolls sideways: on the panel the scrollbar would shrink the cards above. */}
-          <Card>
+          <Card id="panel-opportunities">
             <CardHeader>
               <button
                 type="button"
@@ -929,7 +1173,35 @@ function Dashboard({
                 {areAtuOpportunitiesExpanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
                 Opportunities
               </button>
-              <Badge>{sortedAtuOpportunities.length} opportunities</Badge>
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <SegmentedNav
+                  label="Fiscal quarter"
+                  value={atuQuarter}
+                  onChange={setAtuQuarter}
+                  items={[['all', 'All'], ['Q1', 'Q1'], ['Q2', 'Q2'], ['Q3', 'Q3'], ['Q4', 'Q4']] as const}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void exportRows(sortedAtuOpportunities.map((opportunity) => ({
+                    Vertical: opportunity.vertical,
+                    Opportunity: opportunity.opportunityName,
+                    'Opportunity ID': opportunity.opportunityId,
+                    'Opportunity Stage': opportunity.stage,
+                    'Customer Commitment': opportunity.customerCommitment,
+                    Owner: opportunity.owner,
+                    'Pipeline total': opportunity.pipelineTotal,
+                    'Handoff to CSU': opportunity.handoff,
+                    'Risk / Blocker': opportunity.risk,
+                  })), 'Opportunities', `${accountName}_Opportunities_${atuQuarter}.xlsx`)}
+                  disabled={!sortedAtuOpportunities.length}
+                  title="Download the table as it is filtered and sorted"
+                >
+                  <FileSpreadsheet size={14} strokeWidth={1.5} /> Excel
+                </Button>
+                {/* The count is width-locked so a different filter never nudges the controls sideways. */}
+                <Badge><span className="inline-block min-w-[1.1rem] text-right tabular-nums">{sortedAtuOpportunities.length}</span> opportunities</Badge>
+              </div>
             </CardHeader>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {([
@@ -959,7 +1231,7 @@ function Dashboard({
               {!sortedAtuOpportunities.length && <EmptyRow colSpan={9}>No opportunities for the selected filters.</EmptyRow>}</TBody>
             </Table></TableScroll>}
           </Card>
-          <Card>
+          <Card id="panel-monthly-consumption">
             <CardHeader>
               <CardTitle>Monthly Consumption</CardTitle>
               <span className="text-body text-mid-gray">
@@ -980,15 +1252,19 @@ function Dashboard({
                       const projection = projectedConsumption.find((projected) => projected.month === item.month);
                       return <TD key={item.month} className={cn('tabular-nums', projection ? 'text-mid-gray' : 'font-medium')}>{formatCurrency(projection?.value ?? item.value)}</TD>;
                     })}<TD className="tabular-nums text-mid-gray">{formatCurrency(projectedYearTotal)}</TD></TR>
+                    <TR><TD className="sticky-col font-medium">Daily</TD>{data.consumption.map((item) => {
+                      const daily = data.dailyConsumption.find((entry) => entry.month === item.month)?.value ?? 0;
+                      return <TD key={item.month} className="tabular-nums">{daily ? formatDecimal(daily) : '-'}</TD>;
+                    })}<TD className="text-mid-gray">-</TD></TR>
                     <TR><TD className="sticky-col font-medium">MoM</TD>{data.consumption.map((item, index) => {
                       // Only closed months are comparable: the month still being loaded has partial ACR.
-                      if (index === 0 || (openMonthIndex >= 0 && index >= openMonthIndex)) return <TD key={item.month} className="text-mid-gray">-</TD>;
+                      if (index === 0 || index > lastClosedIndex) return <TD key={item.month} className="text-mid-gray">-</TD>;
                       const previousValue = data.consumption[index - 1].value;
                       const difference = item.value - previousValue;
                       const percentage = previousValue !== 0 ? (difference / previousValue) * 100 : undefined;
-                      const differenceText = `${difference >= 0 ? '+' : '-'}US$ ${(Math.abs(difference) / 1_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k`;
+                      const differenceText = `${difference >= 0 ? '+' : '-'}${(Math.abs(difference) / 1_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k`;
                       const percentageText = percentage === undefined ? '-' : `${percentage >= 0 ? '+' : ''}${percentage.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
-                      return <TD key={item.month} className="font-medium tabular-nums" style={{ color: toneColor(difference >= 0 ? 'positive' : 'negative') }}>{differenceText} / {percentageText}</TD>;
+                      return <TD key={item.month} className="whitespace-nowrap font-medium tabular-nums" style={{ color: toneColor(difference >= 0 ? 'positive' : 'negative') }}>{differenceText} / {percentageText}</TD>;
                     })}<TD className="text-mid-gray">-</TD></TR>
                   </TBody>
                 </Table>
@@ -996,38 +1272,258 @@ function Dashboard({
               }
             />
           </Card>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardTitle>Daily up to date</CardTitle>
-              <ChartPanel
-                className="mt-4"
-                storageKey="daily-up-to-date"
-                chart={<DailyChartLazy data={dailySeries} formatValue={formatDecimal} />}
-                table={
-                  <TableScroll className="mt-4">
-                  <Table>
-                    <THead><tr><TH className="sticky-col">Account</TH>{data.dailyConsumption.map((item) => <TH key={item.month}>{item.month}</TH>)}</tr></THead>
-                    <TBody><TR><TD className="sticky-col font-medium">CAF</TD>{data.dailyConsumption.map((item) => <TD key={item.month} className="tabular-nums">{item.value ? formatDecimal(item.value) : '-'}</TD>)}</TR></TBody>
-                  </Table>
-                  </TableScroll>
-                }
-              />
-            </Card>
-            <Card>
-              <CardTitle>Daily MoM</CardTitle>
-              {(() => {
-                const available = data.dailyConsumption.filter((item) => item.value > 0).slice(-2);
-                const previous = available[0];
-                const current = available[1];
-                const change = previous && current ? ((current.value - previous.value) / previous.value) * 100 : undefined;
-                const currentProjection = calculateCurrentMonthProjection(data.dailyConsumption, referenceDate);
-                const currentMonthLabel = currentProjection?.month ?? referenceDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-                const projectedConsumption = currentProjection?.value;
-                return <TableScroll className="mt-4"><Table><THead><tr><TH className="sticky-col">OB</TH><TH>Daily {previous?.month ?? '-'}</TH><TH>Daily {current?.month ?? '-'}</TH><TH>Daily MoM%</TH><TH>Project {currentMonthLabel}</TH></tr></THead><TBody><TR><TD className="sticky-col font-medium">CAF</TD><TD className="tabular-nums">{previous ? previous.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TD><TD className="tabular-nums">{current ? current.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</TD><TD className="font-medium tabular-nums" style={{ color: toneColor(change !== undefined && change >= 0 ? 'positive' : 'negative') }}>{change !== undefined ? `${change >= 0 ? '+' : ''}${change.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '-'}</TD><TD className="font-medium tabular-nums">{projectedConsumption === undefined ? '-' : projectedConsumption.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TD></TR></TBody></Table></TableScroll>;
-              })()}
-            </Card>
-          </div>
+          {/* Provisional: milestone-driven growth against what the ACR actually moved. */}
           <Card>
+            <CardHeader>
+              <button
+                type="button"
+                onClick={() => setAreCsuMilestonesExpanded((value) => !value)}
+                aria-expanded={areCsuMilestonesExpanded}
+                className="inline-flex items-center gap-2 text-subheading font-semibold text-ink transition-colors hover:text-mid-gray"
+              >
+                {areCsuMilestonesExpanded ? <ChevronDown size={18} strokeWidth={1.5} /> : <ChevronRight size={18} strokeWidth={1.5} />}
+                Expected vs Realized Growth
+              </button>
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <SegmentedNav
+                  label="Customer commitment"
+                  value={growthCommitment}
+                  onChange={setGrowthCommitment}
+                  items={[['all', 'All'], ['committed', 'Committed'], ['uncommitted', 'Uncommitted']] as const}
+                />
+                <SegmentedNav
+                  label="Fiscal quarter"
+                  value={growthQuarter}
+                  onChange={(value) => { setGrowthQuarter(value); setGrowthMonths([]); }}
+                  items={[['all', 'All'], ['Q1', 'Q1'], ['Q2', 'Q2'], ['Q3', 'Q3'], ['Q4', 'Q4']] as const}
+                />
+                {/* cn() does not merge Tailwind classes, so the width has to beat the component default. */}
+                <MultiSelect
+                  label="Months to compare"
+                  allLabel="All months"
+                  value={growthMonths}
+                  onChange={(months) => { setGrowthMonths(months); setGrowthQuarter('all'); }}
+                  items={data.consumption.map((item, index) => [item.month, `${item.month}${index > lastClosedIndex ? ' (open)' : ''}`] as const)}
+                  className="!w-40"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void exportRows(growthMilestones.map((milestone) => ({
+                    Milestone: milestone.title,
+                    'Milestone ID': milestone.milestoneId,
+                    Opportunity: milestone.opportunityName || '',
+                    Owner: milestone.owner,
+                    'Estimated Date': milestone.estimatedDateText ?? '',
+                    'Est. Monthly Usage': milestone.estimatedMonthlyUsage ?? '',
+                    'Customer Commitment': milestone.customerCommitment ?? '',
+                    Quarter: fiscalQuarter(new Date(milestone.estimatedDate ?? '')),
+                    Status: milestone.status,
+                  })), 'Milestones', `${accountName}_Milestones_${growthPeriodLabel.replace(/\s+/g, '')}.xlsx`)}
+                  disabled={!growthMilestones.length}
+                  title="Download the table as it is filtered and sorted"
+                >
+                  <FileSpreadsheet size={14} strokeWidth={1.5} /> Excel
+                </Button>
+              </div>
+            </CardHeader>
+            {expectedGrowth ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatBlock
+                  label="Expected Growth"
+                  value={<span className="tabular-nums">{formatCurrency(expectedGrowth.expected)}</span>}
+                  hint={`${expectedGrowth.milestones} milestones due in ${expectedGrowth.month}`}
+                />
+                <StatBlock
+                  label="Realized Growth (MoM)"
+                  value={<span className="tabular-nums">{expectedGrowth.realized === undefined ? '-' : `${expectedGrowth.realized >= 0 ? '+' : '-'}${formatCurrency(Math.abs(expectedGrowth.realized))}`}</span>}
+                  hint={expectedGrowth.missingReason}
+                  tone={expectedGrowth.realized === undefined ? undefined : expectedGrowth.realized >= 0 ? 'positive' : 'negative'}
+                />
+                <StatBlock
+                  label="Gap"
+                  value={<span className="tabular-nums">{expectedGrowth.gap === undefined ? '-' : `${expectedGrowth.gap >= 0 ? '+' : '-'}${formatCurrency(Math.abs(expectedGrowth.gap))}`}</span>}
+                  tone={expectedGrowth.gap === undefined ? undefined : expectedGrowth.gap >= 0 ? 'positive' : 'negative'}
+                />
+                <StatBlock
+                  label="Attainment"
+                  value={<span className="tabular-nums">{expectedGrowth.attainment === undefined ? '-' : `${expectedGrowth.attainment.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}</span>}
+                  hint={`${expectedGrowth.committed} committed · ${expectedGrowth.uncommitted} uncommitted due`}
+                  tone={expectedGrowth.attainment === undefined ? undefined : expectedGrowth.attainment >= 100 ? 'positive' : 'negative'}
+                />
+              </div>
+            ) : (
+              <p className="mt-4 text-body text-mid-gray">Not enough closed months to compare.</p>
+            )}
+            {areCsuMilestonesExpanded && <TableScroll className="mt-4"><Table>
+              <THead><tr>
+                {([['Milestone', 'title'], ['Milestone ID', 'milestoneId'], ['Opportunity', 'opportunityName'], ['Owner', 'owner'], ['Estimated Date', 'estimatedDate'], ['Est. Monthly Usage', 'estimatedMonthlyUsage'], ['Customer Commitment', 'customerCommitment']] as const).map(([header, key]) => (
+                  <TH key={key}>
+                    <SortHeader label={header} active={csuMilestoneSort.key === key} direction={csuMilestoneSort.direction} onClick={() => setCsuMilestoneSortKey(key)} />
+                  </TH>
+                ))}
+                <TH>Quarter</TH>
+                <TH>
+                  <SortHeader label="Status" active={csuMilestoneSort.key === 'status'} direction={csuMilestoneSort.direction} onClick={() => setCsuMilestoneSortKey('status')} />
+                </TH>
+              </tr></THead>
+              <TBody>
+                {growthMilestones.map((milestone, index) => {
+                  const milestoneDate = new Date(milestone.estimatedDate ?? '');
+                  const quarter = fiscalQuarter(milestoneDate);
+                  return <TR key={`${milestone.milestoneId}-${index}`}>
+                    <TD className="font-medium">{milestone.title}</TD>
+                    <TD>{milestone.milestoneUrl ? <a href={milestone.milestoneUrl} target="_blank" rel="noreferrer" className="font-medium text-accent underline underline-offset-2 transition-colors hover:opacity-80">{milestone.milestoneId}</a> : milestone.milestoneId}</TD>
+                    <TD>{milestone.opportunityName || '-'}</TD>
+                    <TD>{milestone.owner}</TD>
+                    <TD>{milestone.estimatedDateText}</TD>
+                    <TD className="tabular-nums">{milestone.estimatedMonthlyUsage === undefined ? '-' : formatCurrency(milestone.estimatedMonthlyUsage)}</TD>
+                    <TD>{milestone.customerCommitment ?? '-'}</TD>
+                    <TD><TintedBadge tint={quarterPillStyle(quarter)}>{quarter}</TintedBadge></TD>
+                    <TD><TintedBadge tint={statusPillStyle(milestone.status)}>{milestone.status}</TintedBadge></TD>
+                  </TR>;
+                })}
+                {!growthMilestones.length && <EmptyRow colSpan={9}>No milestones due in this period for the selected commitment.</EmptyRow>}
+              </TBody>
+            </Table></TableScroll>}
+          </Card>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center gap-3">
+                <CardTitle>Top Subscription Movers</CardTitle>
+                <SegmentedNav
+                  label="Identify subscriptions by"
+                  value={subscriptionField}
+                  onChange={setSubscriptionField}
+                  items={[['name', 'Name'], ['id', 'ID']] as const}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <SearchField
+                  value={subscriptionSearch}
+                  onChange={(event) => setSubscriptionSearch(event.target.value)}
+                  onClear={() => setSubscriptionSearch('')}
+                  placeholder={subscriptionField === 'id' ? 'Search subscription ID' : 'Search subscription name'}
+                  icon={<Search size={15} strokeWidth={1.5} />}
+                  className="w-56"
+                />
+                {/* cn() does not merge Tailwind classes, so the width has to beat the component default. */}
+                <Select value={subscriptionLimit} onChange={(event) => setSubscriptionLimit(event.target.value)} aria-label="Subscriptions to show" className="!w-32">
+                  <option value="5">Top 5</option>
+                  <option value="10">Top 10</option>
+                  <option value="20">Top 20</option>
+                  <option value="30">Top 30</option>
+                  <option value="all">All</option>
+                </Select>
+                {/* Width-locked counts: otherwise a new limit slides the whole control row. */}
+                <span className="text-body text-mid-gray">
+                  {subscriptionMovers
+                    ? <>{subscriptionMovers.previousMonth} → {subscriptionMovers.currentMonth} · <span className="inline-block min-w-[1.75rem] text-right tabular-nums">{visibleSubscriptions.length}</span> of <span className="inline-block min-w-[1.75rem] tabular-nums">{matchedSubscriptions.length}</span></>
+                    : 'Not enough months to compare'}
+                </span>
+              </div>
+            </CardHeader>
+            <TableScroll className="mt-4">
+              <Table>
+                <THead><tr>
+                  {([
+                    [subscriptionField === 'id' ? 'Subscription ID' : 'Subscription', 'name'],
+                    [`ACR ${subscriptionMovers?.previousMonth ?? '-'}`, 'before'],
+                    [`ACR ${subscriptionMovers?.currentMonth ?? '-'}`, 'after'],
+                    ['MoM', 'difference'],
+                    ['MoM %', 'percentage'],
+                  ] as const).map(([label, key]) => (
+                    <TH key={key} className={key === 'name' ? 'sticky-col' : undefined}>
+                      <SortHeader label={label} active={subscriptionSort.key === key} direction={subscriptionSort.direction} onClick={() => setSubscriptionSortKey(key)} />
+                    </TH>
+                  ))}
+                </tr></THead>
+                <TBody>
+                  {visibleSubscriptions.map((item) => (
+                    <TR key={item.id || item.name}>
+                      <TD className="sticky-col font-medium" title={subscriptionField === 'id' ? item.name : item.id}>{item.label}</TD>
+                      <TD className="tabular-nums">{formatCurrency(item.before)}</TD>
+                      <TD className="tabular-nums">{formatCurrency(item.after)}</TD>
+                      <TD className="font-medium tabular-nums" style={{ color: toneColor(item.difference >= 0 ? 'positive' : 'negative') }}>
+                        {`${item.difference >= 0 ? '+' : '-'}${formatCurrency(Math.abs(item.difference))}`}
+                      </TD>
+                      <TD className="font-medium tabular-nums" style={{ color: toneColor(item.difference >= 0 ? 'positive' : 'negative') }}>
+                        {item.percentage === undefined
+                          ? 'New'
+                          : `${item.percentage >= 0 ? '+' : ''}${item.percentage.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
+                      </TD>
+                    </TR>
+                  ))}
+                  {!visibleSubscriptions.length && <EmptyRow colSpan={5}>{subscriptionSearch.trim() ? 'No subscription matches this search.' : 'No subscription consumption in the workbook.'}</EmptyRow>}
+                </TBody>
+              </Table>
+            </TableScroll>
+          </Card>
+          <Card id="panel-service-movers">
+            <CardHeader>
+              <CardTitle>Top Service Movers</CardTitle>
+              <div className="flex flex-wrap items-center gap-3">
+                <SearchField
+                  value={serviceSearch}
+                  onChange={(event) => setServiceSearch(event.target.value)}
+                  onClear={() => setServiceSearch('')}
+                  placeholder="Search service"
+                  icon={<Search size={15} strokeWidth={1.5} />}
+                  className="w-56"
+                />
+                <Select value={serviceLimit} onChange={(event) => setServiceLimit(event.target.value)} aria-label="Services to show" className="!w-32">
+                  <option value="5">Top 5</option>
+                  <option value="10">Top 10</option>
+                  <option value="20">Top 20</option>
+                  <option value="30">Top 30</option>
+                  <option value="all">All</option>
+                </Select>
+                {/* Width-locked counts: otherwise a new limit slides the whole control row. */}
+                <span className="text-body text-mid-gray">
+                  {data.serviceLevel?.services.length
+                    ? <>{data.serviceLevel.previousMonth || '-'} → {data.serviceLevel.currentMonth || '-'} · <span className="inline-block min-w-[1.75rem] text-right tabular-nums">{visibleServices.length}</span> of <span className="inline-block min-w-[1.75rem] tabular-nums">{matchedServices.length}</span></>
+                    : 'No service level data'}
+                </span>
+              </div>
+            </CardHeader>
+            <TableScroll className="mt-4">
+              <Table>
+                <THead><tr>
+                  {([
+                    ['Service or FRA group', 'name'],
+                    [`Invoiced ${data.serviceLevel?.currentMonth || '-'}`, 'after'],
+                    ['MoM', 'difference'],
+                    ['MoM %', 'percentage'],
+                  ] as const).map(([label, key]) => (
+                    <TH key={key} className={key === 'name' ? 'sticky-col' : undefined}>
+                      <SortHeader label={label} active={serviceSort.key === key} direction={serviceSort.direction} onClick={() => setServiceSortKey(key)} />
+                    </TH>
+                  ))}
+                </tr></THead>
+                <TBody>
+                  {visibleServices.map((item) => (
+                    <TR key={item.name}>
+                      <TD className="sticky-col font-medium">{item.name}</TD>
+                      <TD className="tabular-nums">{formatCurrency(item.after)}</TD>
+                      <TD className="whitespace-nowrap font-medium tabular-nums" style={{ color: toneColor((item.difference ?? 0) >= 0 ? 'positive' : 'negative') }}>
+                        {item.difference === undefined
+                          ? '-'
+                          : `${item.difference >= 0 ? '+' : '-'}${formatCurrency(Math.abs(item.difference))}`}
+                      </TD>
+                      <TD className="whitespace-nowrap font-medium tabular-nums" style={{ color: toneColor((item.difference ?? 0) >= 0 ? 'positive' : 'negative') }}>
+                        {/* Without a MoM in the sheet there is no previous month to compare against. */}
+                        {item.percentage === undefined
+                          ? (item.after > 0 ? 'New' : '-')
+                          : `${item.percentage >= 0 ? '+' : ''}${item.percentage.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
+                      </TD>
+                    </TR>
+                  ))}
+                  {!visibleServices.length && <EmptyRow colSpan={4}>{serviceSearch.trim() ? 'No service matches this search.' : 'No Service Level sheet in the workbook.'}</EmptyRow>}
+                </TBody>
+              </Table>
+            </TableScroll>
+          </Card>
+          <Card id="panel-macc">
             <CardHeader>
               <CardTitle>Expected Monthly MACC vs Current ACR</CardTitle>
               <Badge>MACC Burndown: {maccBurndown === undefined ? '-' : `${maccBurndown.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}</Badge>

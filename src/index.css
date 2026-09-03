@@ -149,6 +149,19 @@ body {
     width 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* Marks the panel a presentation metric jumped to, so the eye lands on it. */
+@keyframes panel-flash {
+  from {
+    box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.55);
+  }
+  to {
+    box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0);
+  }
+}
+
+.is-flashing {
+  animation: panel-flash 1.8s ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -133,6 +133,29 @@ export interface DailyConsumption {
   value: number;
 }
 
+export interface SubscriptionMonthAcr {
+  id: string;
+  name: string;
+  /** ISO year-month, kept for chronological ordering. */
+  monthKey: string;
+  month: string;
+  value: number;
+}
+
+export interface ServiceLevelUsage {
+  name: string;
+  total: number;
+  lastMonth: number;
+  /** Month-over-month change as reported by the sheet, in percent. */
+  momPercentage?: number;
+}
+
+export interface ServiceLevelSummary {
+  previousMonth: string;
+  currentMonth: string;
+  services: ServiceLevelUsage[];
+}
+
 export interface MaccComparison {
   month: string;
   expectedMonthly: number;
@@ -204,6 +227,10 @@ export interface DashboardSummary {
   atuOpportunities: OpportunitySummary[];
   pipelineSummary: PipelineSummary;
   consumption: ConsumptionMonth[];  dailyConsumption: DailyConsumption[];
+  /** ACR per subscription and month, used for the month-over-month movers. */
+  subscriptionConsumption: SubscriptionMonthAcr[];
+  /** Invoiced usage per service, with the previous month rebuilt from the MoM. */
+  serviceLevel: ServiceLevelSummary;
   /** Month still receiving ACR, so its totals are not comparable yet. */
   openConsumptionMonth: string;
   /** "Last update" stamp the Consumption sheet carries above its header. */
